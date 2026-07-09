@@ -12,20 +12,25 @@ const startingOffsetY = computed(() => {
 })
 
 /**
- *  Normalizes the model so that user `scale == 1` means twice the viewport height,
- *  and the model centered horizontally when `position.x == 0`,
- *  showing upper half of the body when `position.y == 0`
+ * Normalizes the model so that user `scale == 1` means twice the fitting
+ * viewport height, while placement remains centered in the current canvas.
+ *
+ * Pass a stable `scaleCanvasDim` when layout can resize without implying a
+ * model-size change, such as the transparent desktop stage window being
+ * resized by dragging its border.
  */
 export function useFitModel(
   canvasDim: MaybeRefOrGetter<{ width: number, height: number }>,
   modelDim: MaybeRefOrGetter<{ width: number, height: number }>,
+  scaleCanvasDim: MaybeRefOrGetter<{ width: number, height: number }> = canvasDim,
 ) {
   const normalizedParam = computed(() => {
     const canvas = toValue(canvasDim)
+    const scaleCanvas = toValue(scaleCanvasDim)
     const model = toValue(modelDim)
 
-    const heightScale = (canvas.height / model.height * 2)
-    const widthScale = (canvas.width / model.width * 2)
+    const heightScale = (scaleCanvas.height / model.height * 2)
+    const widthScale = (scaleCanvas.width / model.width * 2)
     let minScale = Math.min(heightScale, widthScale)
 
     if (Number.isNaN(minScale) || minScale <= 0) {

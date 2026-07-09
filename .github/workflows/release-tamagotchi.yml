@@ -491,9 +491,8 @@ jobs:
           name: ${{ env.BUNDLE_NAME }}
           path: apps/stage-tamagotchi/bundle/${{ env.BUNDLE_NAME }}
 
-      - name: Sign Windows Artifacts with SignPath (Nightly + Windows Only)
+      - name: Sign Windows Artifacts with SignPath (Release + Windows Only)
         id: signpath-release-windows
-        continue-on-error: true
         uses: signpath/github-action-submit-signing-request@v2
         if: ${{ github.event_name == 'release' && (matrix.os == 'windows-latest' && github.repository == 'moeru-ai/airi') }}
         with:

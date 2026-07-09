@@ -253,6 +253,42 @@ describe('createControlApiApp', () => {
     })
   })
 
+  it('requires a message id or index when deleting chat messages', async () => {
+    const options = createOptions()
+    await listen(options)
+
+    const response = await fetch(`${baseUrl}/v1/chat/messages`, {
+      method: 'DELETE',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ sessionId: 's1' }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(options.renderer.chatDeleteMessage).not.toHaveBeenCalled()
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: 'FIELD_REQUIRED',
+      },
+    })
+  })
+
+  it('rejects invalid provider kinds for active provider reads', async () => {
+    const options = createOptions()
+    await listen(options)
+
+    const response = await fetch(`${baseUrl}/v1/providers/not-a-kind/active`, {
+      headers: authHeaders(),
+    })
+
+    expect(response.status).toBe(400)
+    expect(options.renderer.getProviderStatus).not.toHaveBeenCalled()
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: 'PROVIDER_KIND_INVALID',
+      },
+    })
+  })
+
   it('forwards Live2D expression list requests to the renderer', async () => {
     const options = createOptions()
     await listen(options)
@@ -308,6 +344,45 @@ describe('createControlApiApp', () => {
 
     expect(response.status).toBe(400)
     expect(options.renderer.expressionSet).not.toHaveBeenCalled()
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: 'FIELD_INVALID',
+      },
+    })
+  })
+
+  it('validates Godot view patches before forwarding them to the manager', async () => {
+    const options = createOptions()
+    await listen(options)
+
+    const response = await fetch(`${baseUrl}/v1/stage/godot/view`, {
+      method: 'PATCH',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ camera: { position: { x: 1 }, yawDeg: 15 } }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(options.godot.applyViewPatch).toHaveBeenCalledWith({
+      camera: {
+        position: { x: 1 },
+        yawDeg: 15,
+      },
+    })
+    expect(await response.json()).toEqual({ requestId: 'r1' })
+  })
+
+  it('rejects empty Godot view patches before calling the manager', async () => {
+    const options = createOptions()
+    await listen(options)
+
+    const response = await fetch(`${baseUrl}/v1/stage/godot/view`, {
+      method: 'PATCH',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ camera: {} }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(options.godot.applyViewPatch).not.toHaveBeenCalled()
     expect(await response.json()).toMatchObject({
       error: {
         code: 'FIELD_INVALID',
