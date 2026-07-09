@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Live2DEyeFocusSource } from '../../composables/live2d'
-import type { Live2DModelLayoutBounds, Live2DStageLayoutViewport } from '../../types'
+import type { Live2DModelLayoutBounds } from '../../types'
 
 import { Screen } from '@proj-airi/ui'
 import { storeToRefs } from 'pinia'
@@ -24,7 +24,6 @@ const props = withDefaults(defineProps<{
   nowSpeaking?: boolean
   themeColorsHue?: number
   themeColorsHueDynamic?: boolean
-  layoutViewport?: Live2DStageLayoutViewport
 }>(), {
   paused: false,
   mouthOpenSize: 0,
@@ -131,7 +130,6 @@ defineExpose({
         :live2d-force-auto-blink-enabled="live2dForceAutoBlinkEnabled"
         :live2d-expression-enabled="live2dExpressionEnabled"
         :live2d-shadow-enabled="live2dShadowEnabled"
-        :layout-viewport="layoutViewport"
         @layout-bounds-change="emit('modelLayoutBoundsChange', $event)"
       />
     </Live2DCanvas>

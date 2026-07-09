@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { shouldSampleStageTransparency } from '../utils/stage-three-transparency'
+import { shouldHitTestStageTransparency, shouldSampleStageTransparency } from '../utils/stage-three-transparency'
 import { createDefaultWindowLifecycleState, shouldPauseStageFromLifecycle } from './stage-window-lifecycle'
 
 describe('stage window lifecycle helpers', () => {
@@ -30,7 +30,39 @@ describe('stage window lifecycle helpers', () => {
     })).toBe(true)
   })
 
-  it('samples stage transparency only for mounted vrm stage while fade-on-hover is active', () => {
+  it('hit-tests transparency for mounted transparent stage renderers even when fade-on-hover is off', () => {
+    expect(shouldHitTestStageTransparency({
+      componentState: 'mounted',
+      stageModelRenderer: 'live2d',
+      stagePaused: false,
+    })).toBe(true)
+
+    expect(shouldHitTestStageTransparency({
+      componentState: 'mounted',
+      stageModelRenderer: 'vrm',
+      stagePaused: false,
+    })).toBe(true)
+
+    expect(shouldHitTestStageTransparency({
+      componentState: 'mounted',
+      stageModelRenderer: 'spine',
+      stagePaused: false,
+    })).toBe(false)
+
+    expect(shouldHitTestStageTransparency({
+      componentState: 'loading',
+      stageModelRenderer: 'live2d',
+      stagePaused: false,
+    })).toBe(false)
+
+    expect(shouldHitTestStageTransparency({
+      componentState: 'mounted',
+      stageModelRenderer: 'live2d',
+      stagePaused: true,
+    })).toBe(false)
+  })
+
+  it('samples stage transparency for hover fade only while fade-on-hover is active', () => {
     expect(shouldSampleStageTransparency({
       componentState: 'mounted',
       fadeOnHoverEnabled: true,
@@ -57,7 +89,7 @@ describe('stage window lifecycle helpers', () => {
       fadeOnHoverEnabled: true,
       stageModelRenderer: 'live2d',
       stagePaused: false,
-    })).toBe(false)
+    })).toBe(true)
 
     expect(shouldSampleStageTransparency({
       componentState: 'mounted',

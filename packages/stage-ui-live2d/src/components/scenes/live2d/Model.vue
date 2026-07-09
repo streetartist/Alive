@@ -2,7 +2,7 @@
 import type { Application } from '@pixi/app'
 
 import type { PixiLive2DInternalModel } from '../../../composables/live2d'
-import type { Live2DModelLayoutBounds, Live2DStageLayoutViewport } from '../../../types'
+import type { Live2DModelLayoutBounds } from '../../../types'
 import type {
   Live2DExpressionMetadataSettings,
   Live2DExpressionReference,
@@ -56,7 +56,6 @@ const props = withDefaults(defineProps<{
   live2dForceAutoBlinkEnabled?: boolean
   live2dExpressionEnabled?: boolean
   live2dShadowEnabled?: boolean
-  layoutViewport?: Live2DStageLayoutViewport
 }>(), {
   mouthOpenSize: 0,
   nowSpeaking: false,
@@ -93,25 +92,13 @@ let isUnmounted = false
 
 const modelLoadMutex = new Mutex()
 
-const layoutViewport = computed(() => {
-  const viewport = props.layoutViewport
-  const width = viewport && Number.isFinite(viewport.width) && viewport.width > 0
-    ? viewport.width
-    : props.width
-  const height = viewport && Number.isFinite(viewport.height) && viewport.height > 0
-    ? viewport.height
-    : props.height
-
-  return {
-    width,
-    height,
-    offsetX: viewport?.offsetX ?? 0,
-    offsetY: viewport?.offsetY ?? 0,
-  }
-})
+const stageSize = computed(() => ({
+  width: props.width,
+  height: props.height,
+}))
 const offset = computed(() => ({
-  x: (position.value.x / 100) * layoutViewport.value.width,
-  y: -(position.value.y / 100) * layoutViewport.value.height,
+  x: (position.value.x / 100) * stageSize.value.width,
+  y: -(position.value.y / 100) * stageSize.value.height,
 }))
 
 const pixiApp = toRef(() => props.app)
@@ -135,7 +122,7 @@ const dropShadowFilter = shallowRef(new DropShadowFilter({
 let resizeAnimation: ReturnType<typeof animate> | undefined
 
 const modelNormalizeParams = useFitModel(
-  () => ({ width: layoutViewport.value.width, height: layoutViewport.value.height }),
+  () => ({ width: stageSize.value.width, height: stageSize.value.height }),
   () => ({ width: initialModelWidth.value, height: initialModelHeight.value }),
 )
 
@@ -151,8 +138,8 @@ function setScaleAndPosition(animated = false) {
 
   if (!animated) {
     model.value.scale.set(normalized.scale * scale.value, normalized.scale * scale.value)
-    model.value.x = normalized.x + offset.value.x - layoutViewport.value.offsetX
-    model.value.y = normalized.y + offset.value.y - layoutViewport.value.offsetY
+    model.value.x = normalized.x + offset.value.x
+    model.value.y = normalized.y + offset.value.y
     return
   }
 
@@ -166,8 +153,8 @@ function setScaleAndPosition(animated = false) {
 
   resizeAnimation = animate(current, {
     scale: normalized.scale * scale.value,
-    x: normalized.x + offset.value.x - layoutViewport.value.offsetX,
-    y: normalized.y + offset.value.y - layoutViewport.value.offsetY,
+    x: normalized.x + offset.value.x,
+    y: normalized.y + offset.value.y,
     duration: 200,
     ease: 'outQuad',
     onUpdate: () => {
@@ -189,7 +176,7 @@ const modelLayoutBounds = computed<Live2DModelLayoutBounds | null>(() => {
     return null
 
   const normalized = modelNormalizeParams.value
-  const viewport = layoutViewport.value
+  const viewport = stageSize.value
   const fittedScale = normalized.scale * scale.value
   const width = initialModelWidth.value * fittedScale
   const height = initialModelHeight.value * fittedScale

@@ -1,43 +1,49 @@
 <script setup lang="ts">
 import type { ChatAssistantMessage, ChatHistoryItem, ChatSlicesText } from '@proj-airi/stage-ui/types/chat'
 
+import type { StageChatBubbleAnchorBounds, StageChatBubbleStoredOffset } from './stageChatBubblePlacement'
+
 import { useChatSessionStore } from '@proj-airi/stage-ui/stores/chat/session-store'
 import { useChatStreamStore } from '@proj-airi/stage-ui/stores/chat/stream-store'
-import { useWindowSize } from '@vueuse/core'
+import { useElementSize, useEventListener, useLocalStorage, useWindowSize } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
-import { computed } from 'vue'
+import { computed, shallowRef, useTemplateRef, watch } from 'vue'
 
 import { useControlsIslandStore } from '../../stores/controls-island'
-
-interface StageChatBubbleAnchorBounds {
-  left: number
-  top: number
-  right: number
-  bottom: number
-  width: number
-  height: number
-  centerX: number
-  centerY: number
-}
+import { resolveStageChatBubbleDragOffset, resolveStageChatBubblePlacement } from './stageChatBubblePlacement'
 
 const props = defineProps<{
   anchorBounds?: StageChatBubbleAnchorBounds | null
 }>()
 
+const emit = defineEmits<{
+  draggingChange: [dragging: boolean]
+}>()
+
 /** Keeps the stage overlay glanceable; the full response remains available in the chat window. */
 const MAX_BUBBLE_TEXT_LENGTH = 280
-const BUBBLE_MARGIN = 12
-const BUBBLE_GAP = 8
-const BUBBLE_MAX_WIDTH = 352
+
+interface BubbleDragState {
+  anchorScale: number
+  pointerId: number
+  startClientX: number
+  startClientY: number
+  startOffset: StageChatBubbleStoredOffset
+}
 
 const chatSessionStore = useChatSessionStore()
 const chatStreamStore = useChatStreamStore()
 const controlsIslandStore = useControlsIslandStore()
+const bubbleElementRef = useTemplateRef<HTMLDivElement>('bubble')
 const { width: windowWidth, height: windowHeight } = useWindowSize()
+const { width: bubbleWidth, height: bubbleHeight } = useElementSize(bubbleElementRef)
 
 const { messages } = storeToRefs(chatSessionStore)
 const { streamingMessage } = storeToRefs(chatStreamStore)
 const { chatBubbleEnabled } = storeToRefs(controlsIslandStore)
+const chatBubbleOffset = useLocalStorage<StageChatBubbleStoredOffset>('stage-chat-bubble/manual-offset', { x: 0, y: 0 })
+const dragState = shallowRef<BubbleDragState | null>(null)
+const dragging = computed(() => dragState.value !== null)
 
 const streamingText = computed(() => {
   if (!streamingMessage.value.slices?.length)
@@ -58,36 +64,21 @@ const fullText = computed(() => streamingText.value || latestAssistantText.value
 const displayText = computed(() => truncateBubbleText(fullText.value))
 const visible = computed(() => chatBubbleEnabled.value && displayText.value.length > 0)
 const bubblePlacement = computed(() => {
-  const viewportWidth = Math.max(1, windowWidth.value)
-  const viewportHeight = Math.max(1, windowHeight.value)
-  const maxWidth = Math.max(120, Math.min(BUBBLE_MAX_WIDTH, viewportWidth - BUBBLE_MARGIN * 2))
-  const anchor = props.anchorBounds
-
-  if (!anchor) {
-    return {
-      side: 'right',
-      style: {
-        'left': `${BUBBLE_MARGIN}px`,
-        'top': `${Math.min(60, Math.max(BUBBLE_MARGIN, viewportHeight - 120))}px`,
-        '--stage-chat-bubble-max-width': `${maxWidth}px`,
-      },
-    }
-  }
-
-  const side = anchor.centerX > viewportWidth / 2 ? 'left' : 'right'
-  const preferredLeft = side === 'left'
-    ? anchor.left - maxWidth - BUBBLE_GAP
-    : anchor.right + BUBBLE_GAP
-  const left = clampBubbleCoordinate(preferredLeft, BUBBLE_MARGIN, Math.max(BUBBLE_MARGIN, viewportWidth - maxWidth - BUBBLE_MARGIN))
-  const preferredTop = anchor.top + Math.max(8, anchor.height * 0.12)
-  const top = clampBubbleCoordinate(preferredTop, BUBBLE_MARGIN, Math.max(BUBBLE_MARGIN, viewportHeight - 96))
+  const placement = resolveStageChatBubblePlacement({
+    anchorBounds: props.anchorBounds,
+    bubbleHeight: bubbleHeight.value,
+    bubbleWidth: bubbleWidth.value,
+    manualOffset: chatBubbleOffset.value,
+    viewportHeight: windowHeight.value,
+    viewportWidth: windowWidth.value,
+  })
 
   return {
-    side,
+    ...placement,
     style: {
-      'left': `${left}px`,
-      'top': `${top}px`,
-      '--stage-chat-bubble-max-width': `${maxWidth}px`,
+      'left': `${placement.left}px`,
+      'top': `${placement.top}px`,
+      '--stage-chat-bubble-max-width': `${placement.maxWidth}px`,
     },
   }
 })
@@ -149,9 +140,68 @@ function truncateBubbleText(text: string): string {
   return `${text.slice(0, MAX_BUBBLE_TEXT_LENGTH).trimEnd()}...`
 }
 
-function clampBubbleCoordinate(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
+function handlePointerDown(event: PointerEvent) {
+  if (event.button !== 0)
+    return
+
+  event.preventDefault()
+  bubbleElementRef.value?.setPointerCapture(event.pointerId)
+  dragState.value = {
+    anchorScale: bubblePlacement.value.anchorScale,
+    pointerId: event.pointerId,
+    startClientX: event.clientX,
+    startClientY: event.clientY,
+    startOffset: {
+      x: Number.isFinite(chatBubbleOffset.value.x) ? chatBubbleOffset.value.x : 0,
+      y: Number.isFinite(chatBubbleOffset.value.y) ? chatBubbleOffset.value.y : 0,
+    },
+  }
+  emit('draggingChange', true)
 }
+
+function handlePointerMove(event: PointerEvent) {
+  const state = dragState.value
+  if (!state)
+    return
+
+  event.preventDefault()
+  chatBubbleOffset.value = resolveStageChatBubbleDragOffset({
+    anchorScale: state.anchorScale,
+    currentClientX: event.clientX,
+    currentClientY: event.clientY,
+    startClientX: state.startClientX,
+    startClientY: state.startClientY,
+    startOffset: state.startOffset,
+  })
+}
+
+function stopDragging() {
+  const state = dragState.value
+  if (!state)
+    return
+
+  try {
+    bubbleElementRef.value?.releasePointerCapture(state.pointerId)
+  }
+  catch {
+    // Pointer capture can already be released by the browser when the pointer leaves the window.
+  }
+  dragState.value = null
+  emit('draggingChange', false)
+}
+
+watch(visible, (nextVisible) => {
+  if (!nextVisible)
+    stopDragging()
+})
+
+useEventListener(window, 'pointermove', handlePointerMove, { passive: false })
+useEventListener(window, 'pointerup', stopDragging, { passive: true })
+useEventListener(window, 'pointercancel', stopDragging, { passive: true })
+
+defineExpose({
+  rootElement: () => bubbleElementRef.value,
+})
 </script>
 
 <template>
@@ -165,11 +215,17 @@ function clampBubbleCoordinate(value: number, min: number, max: number): number 
   >
     <div
       v-if="visible"
+      ref="bubble"
       aria-live="polite"
-      class="stage-chat-bubble pointer-events-none absolute z-40"
+      :class="[
+        'stage-chat-bubble',
+        'pointer-events-auto absolute z-40 select-none',
+        dragging ? 'cursor-grabbing' : 'cursor-grab',
+      ]"
       role="status"
       :data-side="bubblePlacement.side"
       :style="bubblePlacement.style"
+      @pointerdown="handlePointerDown"
     >
       <div
         :class="[

@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import type { Live2DModelLayoutBounds, Live2DStageLayoutViewport } from '@proj-airi/stage-ui-live2d'
+import type { Live2DModelLayoutBounds } from '@proj-airi/stage-ui-live2d'
 import type { ModelSettingsRuntimeSnapshot } from '@proj-airi/stage-ui/components/scenarios/settings/model-settings/runtime'
 
 import type {
   ModelSettingsLive2DExpressionCommand,
   ModelSettingsRuntimeChannelEvent,
 } from '../../shared/model-settings-runtime'
-import type { StageWindowCrop, StageWindowLayoutSize } from '../utils/live2d-stage-window-layout'
 
 import workletUrl from '@proj-airi/stage-ui/workers/vad/process.worklet?worker&url'
 
@@ -20,7 +19,7 @@ import {
   useElectronRelativeMouse,
 } from '@proj-airi/electron-vueuse'
 import { IS_DEV } from '@proj-airi/stage-shared'
-import { useExpressionStore, useL2dViewControl } from '@proj-airi/stage-ui-live2d'
+import { useExpressionStore } from '@proj-airi/stage-ui-live2d'
 import { useModelStore, useThreeSceneIsTransparentAtPoint } from '@proj-airi/stage-ui-three'
 import { HoloCoupon } from '@proj-airi/stage-ui/components'
 import { createLive2DExpressionSnapshot } from '@proj-airi/stage-ui/components/scenarios/settings/model-settings'
@@ -35,7 +34,7 @@ import { useVAD } from '@proj-airi/stage-ui/stores/ai/models/vad'
 import { useHearingSpeechInputPipeline } from '@proj-airi/stage-ui/stores/modules/hearing'
 import { useOnboardingStore } from '@proj-airi/stage-ui/stores/onboarding'
 import { useSettings, useSettingsAudioDevice } from '@proj-airi/stage-ui/stores/settings'
-import { refDebounced, useBroadcastChannel, useLocalStorage, useThrottleFn } from '@vueuse/core'
+import { refDebounced, useBroadcastChannel } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, toRef, watch } from 'vue'
 
@@ -49,44 +48,22 @@ import { modelSettingsRuntimeSnapshotChannelName } from '../../shared/model-sett
 import { useChatSyncStore } from '../stores/chat-sync'
 import { useControlsIslandStore } from '../stores/controls-island'
 import { useStageWindowLifecycleStore } from '../stores/stage-window-lifecycle'
-import {
-  createFullStageWindowCrop,
-  normalizeStageWindowCrop,
-  normalizeStageWindowLayoutSize,
-  resolveLive2DStageWindowBounds,
-  resolveLive2DStageWindowCrop,
-  stageWindowBoundsEqual,
-} from '../utils/live2d-stage-window-layout'
-import { shouldSampleStageTransparency } from '../utils/stage-three-transparency'
+import { shouldHitTestStageTransparency, shouldSampleStageTransparency } from '../utils/stage-three-transparency'
 
 const controlsIslandRef = ref<InstanceType<typeof ControlsIsland>>()
 const statusIslandRef = ref<InstanceType<typeof StatusIsland>>()
+const chatBubbleRef = ref<InstanceType<typeof StageChatBubble>>()
 const widgetStageRef = ref<InstanceType<typeof WidgetStage>>()
+const chatBubbleElement = toRef(() => chatBubbleRef.value?.rootElement())
 const stageCanvas = toRef(() => widgetStageRef.value?.canvasElement())
 const componentStateStage = ref<'pending' | 'loading' | 'mounted'>('pending')
 const stageMounted = computed(() => componentStateStage.value === 'mounted')
 const isLoading = computed(() => !stageMounted.value)
 const live2dModelLayoutBounds = ref<Live2DModelLayoutBounds | null>(null)
+const chatBubbleDragging = ref(false)
 
 const isIgnoringMouseEvents = ref(false)
 const shouldFadeOnCursorWithin = ref(false)
-
-function getInitialLive2DStageWindowLayoutSize(): StageWindowLayoutSize {
-  return {
-    width: Math.max(1, Math.round(window.innerWidth || 450)),
-    height: Math.max(1, Math.round(window.innerHeight || 600)),
-  }
-}
-
-const initialLive2DStageWindowLayoutSize = getInitialLive2DStageWindowLayoutSize()
-const live2dStageWindowLayoutSize = useLocalStorage<StageWindowLayoutSize>(
-  'settings/live2d/stage-window-layout-size',
-  initialLive2DStageWindowLayoutSize,
-)
-const live2dStageWindowCrop = useLocalStorage<StageWindowCrop>(
-  'settings/live2d/stage-window-crop',
-  createFullStageWindowCrop(initialLive2DStageWindowLayoutSize),
-)
 
 const onboardingStore = useOnboardingStore()
 const openOnboarding = useElectronEventaInvoke(electronOpenOnboarding)
@@ -94,19 +71,28 @@ const openOnboarding = useElectronEventaInvoke(electronOpenOnboarding)
 const { isOutside: isOutsideWindow } = useElectronMouseInWindow()
 const { isOutside } = useElectronMouseInElement(controlsIslandRef)
 const { isOutside: isOutsideStatusIsland } = useElectronMouseInElement(statusIslandRef)
-const isOutsideFor250Ms = refDebounced(isOutside, 250)
-const isOutsideStatusIslandFor250Ms = refDebounced(isOutsideStatusIsland, 250)
+const { isOutside: isOutsideChatBubble } = useElectronMouseInElement(chatBubbleElement)
 const { x: relativeMouseX, y: relativeMouseY } = useElectronRelativeMouse()
-// NOTICE: In real-world use cases of Fade on Hover feature, the cursor may move around the edge of the
-// model rapidly, causing flickering effects when checking pixel transparency strictly.
-// Here we use render-target pixel sampling to keep detection aligned with the actual render output.
-const isTransparentByPixels = useCanvasPixelIsTransparentAtPoint(
+const isTransparentByPixelsAtCursor = useCanvasPixelIsTransparentAtPoint(
+  stageCanvas,
+  relativeMouseX,
+  relativeMouseY,
+)
+// NOTICE: Fade on Hover intentionally samples a small area around the cursor.
+// Exact one-pixel reads make the character flicker near antialiased Live2D/VRM edges,
+// but click-through still uses the exact cursor pixel below.
+const isTransparentByPixelsAroundCursor = useCanvasPixelIsTransparentAtPoint(
   stageCanvas,
   relativeMouseX,
   relativeMouseY,
   { regionRadius: 25 },
 )
-const isTransparentByThree = useThreeSceneIsTransparentAtPoint(
+const isTransparentByThreeAtCursor = useThreeSceneIsTransparentAtPoint(
+  widgetStageRef,
+  relativeMouseX,
+  relativeMouseY,
+)
+const isTransparentByThreeAroundCursor = useThreeSceneIsTransparentAtPoint(
   widgetStageRef,
   relativeMouseX,
   relativeMouseY,
@@ -115,7 +101,6 @@ const isTransparentByThree = useThreeSceneIsTransparentAtPoint(
 
 const settingsStore = useSettings()
 const { stageModelRenderer, stageModelSelectedUrl } = storeToRefs(settingsStore)
-const { scale: live2dScale } = useL2dViewControl()
 const expressionStore = useExpressionStore()
 const modelStore = useModelStore()
 const { sceneMutationLocked, scenePhase } = storeToRefs(modelStore)
@@ -130,125 +115,55 @@ const { stagePaused } = storeToRefs(useStageWindowLifecycleStore())
 const { fadeOnHoverEnabled } = storeToRefs(useControlsIslandStore())
 const modelSettingsRuntimeOwnerInstanceId = `tamagotchi-main-stage:${Math.random().toString(36).slice(2, 10)}`
 const { data: modelSettingsRuntimeChannelEvent, post: postModelSettingsRuntimeChannelEvent } = useBroadcastChannel<ModelSettingsRuntimeChannelEvent, ModelSettingsRuntimeChannelEvent>({ name: modelSettingsRuntimeSnapshotChannelName })
-const shouldUseThreeTransparencyHitTest = computed(() => shouldSampleStageTransparency({
+const shouldUseStageTransparencyHitTest = computed(() => shouldHitTestStageTransparency({
+  componentState: componentStateStage.value,
+  stageModelRenderer: stageModelRenderer.value,
+  stagePaused: stagePaused.value,
+}))
+const shouldUseHoverFadeTransparency = computed(() => shouldSampleStageTransparency({
   componentState: componentStateStage.value,
   fadeOnHoverEnabled: fadeOnHoverEnabled.value,
   stageModelRenderer: stageModelRenderer.value,
   stagePaused: stagePaused.value,
 }))
-const isTransparent = computed(() => {
-  if (stagePaused.value || componentStateStage.value !== 'mounted' || !fadeOnHoverEnabled.value)
+const isTransparentAtCursor = computed(() => {
+  if (!shouldUseStageTransparencyHitTest.value)
+    return false
+
+  if (stageModelRenderer.value === 'vrm')
+    return isTransparentByThreeAtCursor.value
+
+  if (stageModelRenderer.value === 'live2d')
+    return isTransparentByPixelsAtCursor.value
+
+  return false
+})
+const isHoverFadeTransparentAtCursor = computed(() => {
+  if (!shouldUseHoverFadeTransparency.value)
     return true
 
   if (stageModelRenderer.value === 'vrm')
-    return shouldUseThreeTransparencyHitTest.value ? isTransparentByThree.value : true
+    return isTransparentByThreeAroundCursor.value
 
   if (stageModelRenderer.value === 'live2d')
-    return isTransparentByPixels.value
+    return isTransparentByPixelsAroundCursor.value
 
   return true
-})
-const normalizedLive2DStageWindowLayoutSize = computed(() => {
-  return normalizeStageWindowLayoutSize(live2dStageWindowLayoutSize.value, initialLive2DStageWindowLayoutSize)
-})
-const normalizedLive2DStageWindowCrop = computed(() => {
-  return normalizeStageWindowCrop(live2dStageWindowCrop.value, normalizedLive2DStageWindowLayoutSize.value)
-})
-const live2dLayoutViewport = computed<Live2DStageLayoutViewport | undefined>(() => {
-  if (stageModelRenderer.value !== 'live2d')
-    return undefined
-
-  const layoutSize = normalizedLive2DStageWindowLayoutSize.value
-  const crop = normalizedLive2DStageWindowCrop.value
-
-  return {
-    width: layoutSize.width,
-    height: layoutSize.height,
-    offsetX: crop.left,
-    offsetY: crop.top,
-  }
 })
 const live2dModelWindowBounds = computed(() => {
   if (stageModelRenderer.value !== 'live2d' || !live2dModelLayoutBounds.value)
     return null
 
-  const crop = normalizedLive2DStageWindowCrop.value
-  const bounds = live2dModelLayoutBounds.value
-
-  return {
-    left: bounds.left - crop.left,
-    top: bounds.top - crop.top,
-    right: bounds.right - crop.left,
-    bottom: bounds.bottom - crop.top,
-    width: bounds.width,
-    height: bounds.height,
-    centerX: bounds.centerX - crop.left,
-    centerY: bounds.centerY - crop.top,
-  }
+  return live2dModelLayoutBounds.value
 })
 
 const { isNearAnyBorder: isAroundWindowBorder } = useElectronMouseAroundWindowBorder({ threshold: 10 })
 const isAroundWindowBorderFor250Ms = refDebounced(isAroundWindowBorder, 250)
 
 const setIgnoreMouseEvents = useElectronEventaInvoke(electron.window.setIgnoreMouseEvents)
-const getWindowBounds = useElectronEventaInvoke(electron.window.getBounds)
-const setWindowBounds = useElectronEventaInvoke(electron.window.setBounds)
 
-function resolveCurrentCropForWindowOrigin(currentWindowBounds: Awaited<ReturnType<typeof getWindowBounds>>) {
-  const crop = normalizedLive2DStageWindowCrop.value
-  if (Math.abs(currentWindowBounds.width - crop.width) <= 2 && Math.abs(currentWindowBounds.height - crop.height) <= 2)
-    return crop
-
-  return {
-    left: 0,
-    top: 0,
-    width: currentWindowBounds.width,
-    height: currentWindowBounds.height,
-  }
-}
-
-async function applyLive2DStageWindowCrop(nextCrop: StageWindowCrop) {
-  const currentWindowBounds = await getWindowBounds()
-  const targetWindowBounds = resolveLive2DStageWindowBounds({
-    currentWindowBounds,
-    currentCrop: resolveCurrentCropForWindowOrigin(currentWindowBounds),
-    nextCrop,
-  })
-
-  live2dStageWindowCrop.value = nextCrop
-
-  if (stageWindowBoundsEqual(currentWindowBounds, targetWindowBounds, 2))
-    return
-
-  await setWindowBounds([targetWindowBounds])
-}
-
-async function syncLive2DStageWindowCrop() {
-  if (stageModelRenderer.value !== 'live2d' || !stageMounted.value || !live2dModelLayoutBounds.value)
-    return
-
-  const layoutSize = normalizedLive2DStageWindowLayoutSize.value
-  live2dStageWindowLayoutSize.value = layoutSize
-
-  const nextCrop = resolveLive2DStageWindowCrop({
-    layoutSize,
-    modelBounds: live2dModelLayoutBounds.value,
-  })
-
-  await applyLive2DStageWindowCrop(nextCrop)
-}
-
-async function restoreFullLive2DStageWindowCrop() {
-  const layoutSize = normalizedLive2DStageWindowLayoutSize.value
-  await applyLive2DStageWindowCrop(createFullStageWindowCrop(layoutSize))
-}
-
-const syncLive2DStageWindowCropThrottled = useThrottleFn(() => {
-  void syncLive2DStageWindowCrop()
-}, 80)
-
-const { pause, resume } = watch(isTransparent, (transparent) => {
-  shouldFadeOnCursorWithin.value = fadeOnHoverEnabled.value && !transparent
+const { pause, resume } = watch(isHoverFadeTransparentAtCursor, (transparent) => {
+  shouldFadeOnCursorWithin.value = shouldUseHoverFadeTransparency.value && !transparent
 }, { immediate: true })
 
 const hearingDialogOpen = computed(() => controlsIslandRef.value?.hearingDialogOpen ?? false)
@@ -324,7 +239,7 @@ const modelSettingsRuntimeSnapshot = computed<ModelSettingsRuntimeSnapshot>(() =
   })
 })
 
-watch([isOutsideFor250Ms, isOutsideStatusIslandFor250Ms, isAroundWindowBorderFor250Ms, isOutsideWindow, isTransparent, hearingDialogOpen, fadeOnHoverEnabled, stagePaused], () => {
+watch([isOutside, isOutsideStatusIsland, isOutsideChatBubble, isAroundWindowBorderFor250Ms, isOutsideWindow, isTransparentAtCursor, isHoverFadeTransparentAtCursor, hearingDialogOpen, fadeOnHoverEnabled, stagePaused, chatBubbleDragging], () => {
   if (stagePaused.value) {
     isIgnoringMouseEvents.value = false
     shouldFadeOnCursorWithin.value = false
@@ -342,7 +257,10 @@ watch([isOutsideFor250Ms, isOutsideStatusIslandFor250Ms, isAroundWindowBorderFor
     return
   }
 
-  const insideControls = !isOutsideFor250Ms.value || !isOutsideStatusIslandFor250Ms.value
+  const insideControls = !isOutside.value
+    || !isOutsideStatusIsland.value
+    || !isOutsideChatBubble.value
+    || chatBubbleDragging.value
   const nearBorder = isAroundWindowBorderFor250Ms.value
 
   if (insideControls || nearBorder) {
@@ -353,12 +271,11 @@ watch([isOutsideFor250Ms, isOutsideStatusIslandFor250Ms, isAroundWindowBorderFor
     pause()
   }
   else {
-    const fadeEnabled = fadeOnHoverEnabled.value
-    // Otherwise allow click-through while we fade UI based on transparency (when enabled)
-    isIgnoringMouseEvents.value = fadeEnabled
-    shouldFadeOnCursorWithin.value = fadeEnabled && !isOutsideWindow.value && !isTransparent.value
-    setIgnoreMouseEvents([fadeEnabled, { forward: true }])
-    if (fadeEnabled)
+    const transparentClickThrough = shouldUseStageTransparencyHitTest.value && isTransparentAtCursor.value
+    isIgnoringMouseEvents.value = transparentClickThrough
+    shouldFadeOnCursorWithin.value = shouldUseHoverFadeTransparency.value && !isOutsideWindow.value && !isHoverFadeTransparentAtCursor.value
+    setIgnoreMouseEvents([transparentClickThrough, { forward: true }])
+    if (fadeOnHoverEnabled.value)
       resume()
     else
       pause()
@@ -370,20 +287,9 @@ watch(modelSettingsRuntimeSnapshot, (snapshot) => {
   postModelSettingsRuntimeChannelEvent({ type: 'snapshot', snapshot })
 }, { immediate: true })
 
-watch([
-  stageModelRenderer,
-  stageMounted,
-  live2dModelLayoutBounds,
-  live2dScale,
-], () => {
-  syncLive2DStageWindowCropThrottled()
-}, { immediate: true })
-
 watch(stageModelRenderer, (renderer, previousRenderer) => {
-  if (previousRenderer === 'live2d' && renderer !== 'live2d') {
+  if (previousRenderer === 'live2d' && renderer !== 'live2d')
     live2dModelLayoutBounds.value = null
-    void restoreFullLive2DStageWindowCrop()
-  }
 })
 
 watch(modelSettingsRuntimeChannelEvent, (event) => {
@@ -613,8 +519,6 @@ onMounted(() => {
   if (onboardingStore.needsOnboarding) {
     openOnboarding()
   }
-
-  syncLive2DStageWindowCropThrottled()
 })
 
 onUnmounted(() => {
@@ -690,10 +594,13 @@ const cursorPosition = computed(() => ({
           flex-1
           :cursor-position="cursorPosition"
           :paused="stagePaused"
-          :live2d-layout-viewport="live2dLayoutViewport"
           @live2d-model-bounds-change="handleLive2DModelBoundsChange"
         />
-        <StageChatBubble :anchor-bounds="live2dModelWindowBounds" />
+        <StageChatBubble
+          ref="chatBubbleRef"
+          :anchor-bounds="live2dModelWindowBounds"
+          @dragging-change="chatBubbleDragging = $event"
+        />
         <HoloCoupon />
         <ControlsIsland
           ref="controlsIslandRef"
