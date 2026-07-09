@@ -99,7 +99,8 @@ function createModelSettings(text: string, url: string): ModelSettings {
   }
 
   const settingsJSON = JSON.parse(text) as JSONObject & { url?: string }
-  settingsJSON.url = url
+  settingsJSON.url = normalizeLive2DModelUriPath(url)
+  normalizeModelSettingsFileReferences(settingsJSON)
   const runtime = Live2DFactory.findRuntime(settingsJSON)
 
   if (!runtime) {
@@ -107,6 +108,70 @@ function createModelSettings(text: string, url: string): ModelSettings {
   }
 
   return runtime.createModelSettings(settingsJSON)
+}
+
+function normalizeLive2DModelUriPath(path: string): string {
+  try {
+    return encodeURI(decodeURI(path))
+  }
+  catch {
+    return encodeURI(path)
+  }
+}
+
+function normalizeOptionalModelPath(value: unknown): string | undefined {
+  return typeof value === 'string'
+    ? normalizeLive2DModelUriPath(value)
+    : undefined
+}
+
+function normalizeModelPathArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value))
+    return undefined
+
+  return value.map(item => normalizeOptionalModelPath(item)).filter(item => item !== undefined)
+}
+
+function normalizeModelSettingsFileReferences(settingsJSON: Record<string, unknown>) {
+  const refs = settingsJSON.FileReferences
+  if (!refs || typeof refs !== 'object')
+    return
+
+  const fileReferences = refs as Record<string, unknown>
+  fileReferences.Moc = normalizeOptionalModelPath(fileReferences.Moc) ?? fileReferences.Moc
+  fileReferences.Textures = normalizeModelPathArray(fileReferences.Textures) ?? fileReferences.Textures
+  fileReferences.Physics = normalizeOptionalModelPath(fileReferences.Physics) ?? fileReferences.Physics
+  fileReferences.Pose = normalizeOptionalModelPath(fileReferences.Pose) ?? fileReferences.Pose
+  fileReferences.DisplayInfo = normalizeOptionalModelPath(fileReferences.DisplayInfo) ?? fileReferences.DisplayInfo
+
+  const expressions = fileReferences.Expressions
+  if (Array.isArray(expressions)) {
+    fileReferences.Expressions = expressions.map((expression) => {
+      if (!expression || typeof expression !== 'object')
+        return expression
+
+      const next = { ...(expression as Record<string, unknown>) }
+      next.File = normalizeOptionalModelPath(next.File) ?? next.File
+      return next
+    })
+  }
+
+  const motions = fileReferences.Motions
+  if (motions && typeof motions === 'object' && !Array.isArray(motions)) {
+    for (const entries of Object.values(motions as Record<string, unknown>)) {
+      if (!Array.isArray(entries))
+        continue
+
+      for (const motion of entries) {
+        if (!motion || typeof motion !== 'object')
+          continue
+
+        const motionRecord = motion as Record<string, unknown>
+        motionRecord.File = normalizeOptionalModelPath(motionRecord.File) ?? motionRecord.File
+        motionRecord.Sound = normalizeOptionalModelPath(motionRecord.Sound) ?? motionRecord.Sound
+      }
+    }
+  }
 }
 
 export function isSettingsFile(file: string) {

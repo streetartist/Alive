@@ -47,6 +47,22 @@ function createShisihangshiSettingsText(): string {
   })
 }
 
+function createYouxiaomiaoSettingsText(): string {
+  return JSON.stringify({
+    Version: 3,
+    FileReferences: {
+      Moc: '悠小喵.moc3',
+      Textures: ['悠小喵.8192/texture_00.png'],
+      Physics: '悠小喵.physics3.json',
+      DisplayInfo: '悠小喵.cdi3.json',
+      Motions: {
+        '': [{ File: 'exp/常规.motion3.json' }],
+      },
+    },
+    Groups: [],
+  })
+}
+
 function createExpressionText(parameterId = 'ParamHappy'): string {
   return JSON.stringify({
     Type: 'Live2D Expression',
@@ -155,6 +171,28 @@ describe('live2d zip loader settings sanitization', () => {
     ])
   })
 
+  it('loads a zip model whose model3.json references non-ASCII file paths', async () => {
+    await import('./live2d-zip-loader')
+    const { ZipLoader } = await import('pixi-live2d-display/cubism4')
+
+    const zip = new JSZip()
+    zip.file('悠小喵.model3.json', createYouxiaomiaoSettingsText())
+    zip.file('悠小喵.moc3', new Uint8Array([77, 79, 67, 51]))
+    zip.file('悠小喵.8192/texture_00.png', new Uint8Array([1, 2, 3]))
+    zip.file('悠小喵.physics3.json', '{}')
+    zip.file('悠小喵.cdi3.json', '{}')
+    zip.file('exp/常规.motion3.json', '{}')
+
+    const zipBytes = await zip.generateAsync({ type: 'uint8array' })
+    const reader = await JSZip.loadAsync(await blobFromBytes(zipBytes).arrayBuffer())
+    const settings = await ZipLoader.createSettings(reader)
+    const files = await ZipLoader.unzip(reader, settings)
+
+    expect(settings.url).toBe(encodeURI('悠小喵.model3.json'))
+    expect(settings.moc).toBe(encodeURI('悠小喵.moc3'))
+    expect(() => settings.validateFiles(files.map(file => encodeURI(file.webkitRelativePath)))).not.toThrow()
+  })
+
   it('loads an OPFS-restored file directory when model3.json contains Physics: null', async () => {
     await import('./live2d-zip-loader')
     const { FileLoader } = await import('pixi-live2d-display/cubism4')
@@ -224,6 +262,50 @@ describe('live2d zip loader settings sanitization', () => {
 
     expect(settings.url).toBe('302301_shisihangshi/302301_shisihangshi.model3.json')
     expect(settings.physics).toBeUndefined()
+  })
+
+  it('loads an OPFS-restored file directory whose model3.json references non-ASCII file paths', async () => {
+    await import('./live2d-zip-loader')
+    const { FileLoader } = await import('pixi-live2d-display/cubism4')
+
+    const files = [
+      fileWithRelativePath(
+        createYouxiaomiaoSettingsText(),
+        '悠小喵.model3.json',
+        '悠小喵.model3.json',
+      ),
+      fileWithRelativePath(
+        new Uint8Array([77, 79, 67, 51]),
+        '悠小喵.moc3',
+        '悠小喵.moc3',
+      ),
+      fileWithRelativePath(
+        new Uint8Array([1, 2, 3]),
+        'texture_00.png',
+        '悠小喵.8192/texture_00.png',
+      ),
+      fileWithRelativePath(
+        '{}',
+        '悠小喵.physics3.json',
+        '悠小喵.physics3.json',
+      ),
+      fileWithRelativePath(
+        '{}',
+        '悠小喵.cdi3.json',
+        '悠小喵.cdi3.json',
+      ),
+      fileWithRelativePath(
+        '{}',
+        '常规.motion3.json',
+        'exp/常规.motion3.json',
+      ),
+    ]
+
+    const settings = await FileLoader.createSettings(files)
+
+    expect(settings.url).toBe(encodeURI('悠小喵.model3.json'))
+    expect(settings.moc).toBe(encodeURI('悠小喵.moc3'))
+    expect(() => settings.validateFiles(files.map(file => encodeURI(file.webkitRelativePath)))).not.toThrow()
   })
 
   it('extracts undeclared exp3 files from OPFS-restored file directories for expression auto-discovery', async () => {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Live2DLipSync, Live2DLipSyncOptions } from '@proj-airi/model-driver-lipsync'
 import type { Profile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
+import type { Live2DModelLayoutBounds, Live2DStageLayoutViewport } from '@proj-airi/stage-ui-live2d'
 import type { SpeechProviderWithExtraOptions } from '@xsai-ext/providers/utils'
 import type { UnElevenLabsOptions } from 'unspeech'
 
@@ -52,10 +53,15 @@ const props = withDefaults(defineProps<{
   cursorPosition?: { x: number, y: number }
   enableOrbitControls?: boolean
   paused?: boolean
+  live2dLayoutViewport?: Live2DStageLayoutViewport
 }>(), {
   enableOrbitControls: true,
   paused: false,
 })
+
+const emit = defineEmits<{
+  (e: 'live2dModelBoundsChange', bounds: Live2DModelLayoutBounds | null): void
+}>()
 
 const componentState = defineModel<'pending' | 'loading' | 'mounted'>('state', { default: 'pending' })
 
@@ -996,6 +1002,8 @@ defineExpose({
         :live2d-shadow-enabled="live2dShadowEnabled"
         :live2d-max-fps="live2dMaxFps"
         :live2d-render-scale="live2dRenderScale"
+        :layout-viewport="live2dLayoutViewport"
+        @model-layout-bounds-change="emit('live2dModelBoundsChange', $event)"
       />
       <ThreeScene
         v-if="stageModelRenderer === 'vrm' && showStage"

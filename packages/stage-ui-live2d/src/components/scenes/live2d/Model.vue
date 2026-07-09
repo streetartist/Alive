@@ -2,6 +2,7 @@
 import type { Application } from '@pixi/app'
 
 import type { PixiLive2DInternalModel } from '../../../composables/live2d'
+import type { Live2DModelLayoutBounds, Live2DStageLayoutViewport } from '../../../types'
 import type {
   Live2DExpressionMetadataSettings,
   Live2DExpressionReference,
@@ -55,6 +56,7 @@ const props = withDefaults(defineProps<{
   live2dForceAutoBlinkEnabled?: boolean
   live2dExpressionEnabled?: boolean
   live2dShadowEnabled?: boolean
+  layoutViewport?: Live2DStageLayoutViewport
 }>(), {
   mouthOpenSize: 0,
   nowSpeaking: false,
@@ -77,6 +79,7 @@ const props = withDefaults(defineProps<{
 const emits = defineEmits<{
   (e: 'modelLoaded'): void
   (e: 'error', error: Error): void
+  (e: 'layoutBoundsChange', bounds: Live2DModelLayoutBounds | null): void
 }>()
 
 const componentState = defineModel<'pending' | 'loading' | 'mounted'>('state', { default: 'pending' })
@@ -90,9 +93,25 @@ let isUnmounted = false
 
 const modelLoadMutex = new Mutex()
 
+const layoutViewport = computed(() => {
+  const viewport = props.layoutViewport
+  const width = viewport && Number.isFinite(viewport.width) && viewport.width > 0
+    ? viewport.width
+    : props.width
+  const height = viewport && Number.isFinite(viewport.height) && viewport.height > 0
+    ? viewport.height
+    : props.height
+
+  return {
+    width,
+    height,
+    offsetX: viewport?.offsetX ?? 0,
+    offsetY: viewport?.offsetY ?? 0,
+  }
+})
 const offset = computed(() => ({
-  x: (position.value.x / 100) * props.width,
-  y: -(position.value.y / 100) * props.height,
+  x: (position.value.x / 100) * layoutViewport.value.width,
+  y: -(position.value.y / 100) * layoutViewport.value.height,
 }))
 
 const pixiApp = toRef(() => props.app)
@@ -116,7 +135,7 @@ const dropShadowFilter = shallowRef(new DropShadowFilter({
 let resizeAnimation: ReturnType<typeof animate> | undefined
 
 const modelNormalizeParams = useFitModel(
-  () => ({ width: props.width, height: props.height }),
+  () => ({ width: layoutViewport.value.width, height: layoutViewport.value.height }),
   () => ({ width: initialModelWidth.value, height: initialModelHeight.value }),
 )
 
@@ -132,8 +151,8 @@ function setScaleAndPosition(animated = false) {
 
   if (!animated) {
     model.value.scale.set(normalized.scale * scale.value, normalized.scale * scale.value)
-    model.value.x = normalized.x + offset.value.x
-    model.value.y = normalized.y + offset.value.y
+    model.value.x = normalized.x + offset.value.x - layoutViewport.value.offsetX
+    model.value.y = normalized.y + offset.value.y - layoutViewport.value.offsetY
     return
   }
 
@@ -147,8 +166,8 @@ function setScaleAndPosition(animated = false) {
 
   resizeAnimation = animate(current, {
     scale: normalized.scale * scale.value,
-    x: normalized.x + offset.value.x,
-    y: normalized.y + offset.value.y,
+    x: normalized.x + offset.value.x - layoutViewport.value.offsetX,
+    y: normalized.y + offset.value.y - layoutViewport.value.offsetY,
     duration: 200,
     ease: 'outQuad',
     onUpdate: () => {
@@ -160,6 +179,48 @@ function setScaleAndPosition(animated = false) {
     },
   })
 }
+
+function clampLayoutCoordinate(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+const modelLayoutBounds = computed<Live2DModelLayoutBounds | null>(() => {
+  if (!model.value || initialModelWidth.value <= 0 || initialModelHeight.value <= 0)
+    return null
+
+  const normalized = modelNormalizeParams.value
+  const viewport = layoutViewport.value
+  const fittedScale = normalized.scale * scale.value
+  const width = initialModelWidth.value * fittedScale
+  const height = initialModelHeight.value * fittedScale
+  const centerX = normalized.x + offset.value.x
+  const centerY = normalized.y + offset.value.y
+  const rawLeft = centerX - width / 2
+  const rawTop = centerY - height / 2
+  const rawRight = centerX + width / 2
+  const rawBottom = centerY + height / 2
+  const left = clampLayoutCoordinate(rawLeft, 0, viewport.width)
+  const top = clampLayoutCoordinate(rawTop, 0, viewport.height)
+  const right = clampLayoutCoordinate(rawRight, 0, viewport.width)
+  const bottom = clampLayoutCoordinate(rawBottom, 0, viewport.height)
+
+  if (right <= left || bottom <= top)
+    return null
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left,
+    height: bottom - top,
+    centerX,
+    centerY,
+    stageWidth: viewport.width,
+    stageHeight: viewport.height,
+    scale: fittedScale,
+  }
+})
 
 const live2dStore = useLive2dParams()
 const {
@@ -549,6 +610,7 @@ function updateDropShadowFilter() {
 }
 
 watch(modelSrcRef, async () => await loadModel(), { immediate: true })
+watch(modelLayoutBounds, bounds => emits('layoutBoundsChange', bounds), { immediate: true })
 watch(dark, updateDropShadowFilter, { immediate: true })
 watch([model, themeColorsHue], updateDropShadowFilter)
 watch(live2dShadowEnabled, updateDropShadowFilter)

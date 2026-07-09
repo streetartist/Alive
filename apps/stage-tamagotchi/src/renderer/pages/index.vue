@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import type { Live2DModelLayoutBounds, Live2DStageLayoutViewport } from '@proj-airi/stage-ui-live2d'
 import type { ModelSettingsRuntimeSnapshot } from '@proj-airi/stage-ui/components/scenarios/settings/model-settings/runtime'
 
 import type {
   ModelSettingsLive2DExpressionCommand,
   ModelSettingsRuntimeChannelEvent,
 } from '../../shared/model-settings-runtime'
+import type { StageWindowCrop, StageWindowLayoutSize } from '../utils/live2d-stage-window-layout'
 
 import workletUrl from '@proj-airi/stage-ui/workers/vad/process.worklet?worker&url'
 
@@ -18,6 +20,7 @@ import {
   useElectronRelativeMouse,
 } from '@proj-airi/electron-vueuse'
 import { IS_DEV } from '@proj-airi/stage-shared'
+import { useExpressionStore, useL2dViewControl } from '@proj-airi/stage-ui-live2d'
 import { useModelStore, useThreeSceneIsTransparentAtPoint } from '@proj-airi/stage-ui-three'
 import { HoloCoupon } from '@proj-airi/stage-ui/components'
 import { createLive2DExpressionSnapshot } from '@proj-airi/stage-ui/components/scenarios/settings/model-settings'
@@ -32,8 +35,7 @@ import { useVAD } from '@proj-airi/stage-ui/stores/ai/models/vad'
 import { useHearingSpeechInputPipeline } from '@proj-airi/stage-ui/stores/modules/hearing'
 import { useOnboardingStore } from '@proj-airi/stage-ui/stores/onboarding'
 import { useSettings, useSettingsAudioDevice } from '@proj-airi/stage-ui/stores/settings'
-import { useExpressionStore } from '@proj-airi/stage-ui-live2d'
-import { refDebounced, useBroadcastChannel } from '@vueuse/core'
+import { refDebounced, useBroadcastChannel, useLocalStorage, useThrottleFn } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, toRef, watch } from 'vue'
 
@@ -47,6 +49,14 @@ import { modelSettingsRuntimeSnapshotChannelName } from '../../shared/model-sett
 import { useChatSyncStore } from '../stores/chat-sync'
 import { useControlsIslandStore } from '../stores/controls-island'
 import { useStageWindowLifecycleStore } from '../stores/stage-window-lifecycle'
+import {
+  createFullStageWindowCrop,
+  normalizeStageWindowCrop,
+  normalizeStageWindowLayoutSize,
+  resolveLive2DStageWindowBounds,
+  resolveLive2DStageWindowCrop,
+  stageWindowBoundsEqual,
+} from '../utils/live2d-stage-window-layout'
 import { shouldSampleStageTransparency } from '../utils/stage-three-transparency'
 
 const controlsIslandRef = ref<InstanceType<typeof ControlsIsland>>()
@@ -56,9 +66,27 @@ const stageCanvas = toRef(() => widgetStageRef.value?.canvasElement())
 const componentStateStage = ref<'pending' | 'loading' | 'mounted'>('pending')
 const stageMounted = computed(() => componentStateStage.value === 'mounted')
 const isLoading = computed(() => !stageMounted.value)
+const live2dModelLayoutBounds = ref<Live2DModelLayoutBounds | null>(null)
 
 const isIgnoringMouseEvents = ref(false)
 const shouldFadeOnCursorWithin = ref(false)
+
+function getInitialLive2DStageWindowLayoutSize(): StageWindowLayoutSize {
+  return {
+    width: Math.max(1, Math.round(window.innerWidth || 450)),
+    height: Math.max(1, Math.round(window.innerHeight || 600)),
+  }
+}
+
+const initialLive2DStageWindowLayoutSize = getInitialLive2DStageWindowLayoutSize()
+const live2dStageWindowLayoutSize = useLocalStorage<StageWindowLayoutSize>(
+  'settings/live2d/stage-window-layout-size',
+  initialLive2DStageWindowLayoutSize,
+)
+const live2dStageWindowCrop = useLocalStorage<StageWindowCrop>(
+  'settings/live2d/stage-window-crop',
+  createFullStageWindowCrop(initialLive2DStageWindowLayoutSize),
+)
 
 const onboardingStore = useOnboardingStore()
 const openOnboarding = useElectronEventaInvoke(electronOpenOnboarding)
@@ -87,6 +115,7 @@ const isTransparentByThree = useThreeSceneIsTransparentAtPoint(
 
 const settingsStore = useSettings()
 const { stageModelRenderer, stageModelSelectedUrl } = storeToRefs(settingsStore)
+const { scale: live2dScale } = useL2dViewControl()
 const expressionStore = useExpressionStore()
 const modelStore = useModelStore()
 const { sceneMutationLocked, scenePhase } = storeToRefs(modelStore)
@@ -119,11 +148,104 @@ const isTransparent = computed(() => {
 
   return true
 })
+const normalizedLive2DStageWindowLayoutSize = computed(() => {
+  return normalizeStageWindowLayoutSize(live2dStageWindowLayoutSize.value, initialLive2DStageWindowLayoutSize)
+})
+const normalizedLive2DStageWindowCrop = computed(() => {
+  return normalizeStageWindowCrop(live2dStageWindowCrop.value, normalizedLive2DStageWindowLayoutSize.value)
+})
+const live2dLayoutViewport = computed<Live2DStageLayoutViewport | undefined>(() => {
+  if (stageModelRenderer.value !== 'live2d')
+    return undefined
+
+  const layoutSize = normalizedLive2DStageWindowLayoutSize.value
+  const crop = normalizedLive2DStageWindowCrop.value
+
+  return {
+    width: layoutSize.width,
+    height: layoutSize.height,
+    offsetX: crop.left,
+    offsetY: crop.top,
+  }
+})
+const live2dModelWindowBounds = computed(() => {
+  if (stageModelRenderer.value !== 'live2d' || !live2dModelLayoutBounds.value)
+    return null
+
+  const crop = normalizedLive2DStageWindowCrop.value
+  const bounds = live2dModelLayoutBounds.value
+
+  return {
+    left: bounds.left - crop.left,
+    top: bounds.top - crop.top,
+    right: bounds.right - crop.left,
+    bottom: bounds.bottom - crop.top,
+    width: bounds.width,
+    height: bounds.height,
+    centerX: bounds.centerX - crop.left,
+    centerY: bounds.centerY - crop.top,
+  }
+})
 
 const { isNearAnyBorder: isAroundWindowBorder } = useElectronMouseAroundWindowBorder({ threshold: 10 })
 const isAroundWindowBorderFor250Ms = refDebounced(isAroundWindowBorder, 250)
 
 const setIgnoreMouseEvents = useElectronEventaInvoke(electron.window.setIgnoreMouseEvents)
+const getWindowBounds = useElectronEventaInvoke(electron.window.getBounds)
+const setWindowBounds = useElectronEventaInvoke(electron.window.setBounds)
+
+function resolveCurrentCropForWindowOrigin(currentWindowBounds: Awaited<ReturnType<typeof getWindowBounds>>) {
+  const crop = normalizedLive2DStageWindowCrop.value
+  if (Math.abs(currentWindowBounds.width - crop.width) <= 2 && Math.abs(currentWindowBounds.height - crop.height) <= 2)
+    return crop
+
+  return {
+    left: 0,
+    top: 0,
+    width: currentWindowBounds.width,
+    height: currentWindowBounds.height,
+  }
+}
+
+async function applyLive2DStageWindowCrop(nextCrop: StageWindowCrop) {
+  const currentWindowBounds = await getWindowBounds()
+  const targetWindowBounds = resolveLive2DStageWindowBounds({
+    currentWindowBounds,
+    currentCrop: resolveCurrentCropForWindowOrigin(currentWindowBounds),
+    nextCrop,
+  })
+
+  live2dStageWindowCrop.value = nextCrop
+
+  if (stageWindowBoundsEqual(currentWindowBounds, targetWindowBounds, 2))
+    return
+
+  await setWindowBounds([targetWindowBounds])
+}
+
+async function syncLive2DStageWindowCrop() {
+  if (stageModelRenderer.value !== 'live2d' || !stageMounted.value || !live2dModelLayoutBounds.value)
+    return
+
+  const layoutSize = normalizedLive2DStageWindowLayoutSize.value
+  live2dStageWindowLayoutSize.value = layoutSize
+
+  const nextCrop = resolveLive2DStageWindowCrop({
+    layoutSize,
+    modelBounds: live2dModelLayoutBounds.value,
+  })
+
+  await applyLive2DStageWindowCrop(nextCrop)
+}
+
+async function restoreFullLive2DStageWindowCrop() {
+  const layoutSize = normalizedLive2DStageWindowLayoutSize.value
+  await applyLive2DStageWindowCrop(createFullStageWindowCrop(layoutSize))
+}
+
+const syncLive2DStageWindowCropThrottled = useThrottleFn(() => {
+  void syncLive2DStageWindowCrop()
+}, 80)
 
 const { pause, resume } = watch(isTransparent, (transparent) => {
   shouldFadeOnCursorWithin.value = fadeOnHoverEnabled.value && !transparent
@@ -248,6 +370,22 @@ watch(modelSettingsRuntimeSnapshot, (snapshot) => {
   postModelSettingsRuntimeChannelEvent({ type: 'snapshot', snapshot })
 }, { immediate: true })
 
+watch([
+  stageModelRenderer,
+  stageMounted,
+  live2dModelLayoutBounds,
+  live2dScale,
+], () => {
+  syncLive2DStageWindowCropThrottled()
+}, { immediate: true })
+
+watch(stageModelRenderer, (renderer, previousRenderer) => {
+  if (previousRenderer === 'live2d' && renderer !== 'live2d') {
+    live2dModelLayoutBounds.value = null
+    void restoreFullLive2DStageWindowCrop()
+  }
+})
+
 watch(modelSettingsRuntimeChannelEvent, (event) => {
   if (!event)
     return
@@ -282,6 +420,10 @@ function handleLive2DExpressionCommand(command: ModelSettingsLive2DExpressionCom
       expressionStore.setLlmExposed(command.name, command.value)
       break
   }
+}
+
+function handleLive2DModelBoundsChange(bounds: Live2DModelLayoutBounds | null) {
+  live2dModelLayoutBounds.value = bounds
 }
 
 const settingsAudioDeviceStore = useSettingsAudioDevice()
@@ -471,6 +613,8 @@ onMounted(() => {
   if (onboardingStore.needsOnboarding) {
     openOnboarding()
   }
+
+  syncLive2DStageWindowCropThrottled()
 })
 
 onUnmounted(() => {
@@ -546,8 +690,10 @@ const cursorPosition = computed(() => ({
           flex-1
           :cursor-position="cursorPosition"
           :paused="stagePaused"
+          :live2d-layout-viewport="live2dLayoutViewport"
+          @live2d-model-bounds-change="handleLive2DModelBoundsChange"
         />
-        <StageChatBubble />
+        <StageChatBubble :anchor-bounds="live2dModelWindowBounds" />
         <HoloCoupon />
         <ControlsIsland
           ref="controlsIslandRef"

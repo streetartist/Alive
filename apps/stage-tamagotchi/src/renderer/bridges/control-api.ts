@@ -7,13 +7,13 @@ import type {
   ControlApiChatInterruptResult,
   ControlApiChatMessagesRequest,
   ControlApiChatMessagesSnapshot,
+  ControlApiChatSessionsSnapshot,
   ControlApiExpressionLlmExposedRequest,
   ControlApiExpressionLlmModeRequest,
   ControlApiExpressionOperationResponse,
   ControlApiExpressionSetRequest,
   ControlApiExpressionSnapshot,
   ControlApiExpressionToggleRequest,
-  ControlApiChatSessionsSnapshot,
   ControlApiProviderModelsResponse,
   ControlApiProviderSetActiveRequest,
   ControlApiProviderStatus,
@@ -24,6 +24,7 @@ import type {
 } from '../../shared/eventa'
 
 import { defineInvokeHandler } from '@moeru/eventa'
+import { useExpressionStore } from '@proj-airi/stage-ui-live2d'
 import { useChatOrchestratorStore } from '@proj-airi/stage-ui/stores/chat'
 import { useChatSessionStore } from '@proj-airi/stage-ui/stores/chat/session-store'
 import { useChatStreamStore } from '@proj-airi/stage-ui/stores/chat/stream-store'
@@ -33,7 +34,6 @@ import { useHearingStore } from '@proj-airi/stage-ui/stores/modules/hearing'
 import { useSpeechStore } from '@proj-airi/stage-ui/stores/modules/speech'
 import { useVisionStore } from '@proj-airi/stage-ui/stores/modules/vision/store'
 import { useProvidersStore } from '@proj-airi/stage-ui/stores/providers'
-import { useExpressionStore } from '@proj-airi/stage-ui-live2d'
 
 import {
   electronControlApiChatCleanup,
