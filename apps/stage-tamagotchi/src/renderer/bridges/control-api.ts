@@ -14,6 +14,12 @@ import type {
   ControlApiExpressionSetRequest,
   ControlApiExpressionSnapshot,
   ControlApiExpressionToggleRequest,
+  ControlApiLive2DMotionPlayRequest,
+  ControlApiLive2DMotionSnapshot,
+  ControlApiLive2DViewControl,
+  ControlApiLive2DViewResetRequest,
+  ControlApiLive2DViewSetRequest,
+  ControlApiLive2DViewSnapshot,
   ControlApiProviderModelsResponse,
   ControlApiProviderSetActiveRequest,
   ControlApiProviderStatus,
@@ -24,7 +30,7 @@ import type {
 } from '../../shared/eventa'
 
 import { defineInvokeHandler } from '@moeru/eventa'
-import { useExpressionStore } from '@proj-airi/stage-ui-live2d'
+import { useExpressionStore, useL2dViewControl, useLive2dParams } from '@proj-airi/stage-ui-live2d/stores'
 import { useChatOrchestratorStore } from '@proj-airi/stage-ui/stores/chat'
 import { useChatSessionStore } from '@proj-airi/stage-ui/stores/chat/session-store'
 import { useChatStreamStore } from '@proj-airi/stage-ui/stores/chat/stream-store'
@@ -56,6 +62,11 @@ import {
   electronControlApiGetProviderModels,
   electronControlApiGetProviderStatus,
   electronControlApiGetStatus,
+  electronControlApiLive2DMotionList,
+  electronControlApiLive2DMotionPlay,
+  electronControlApiLive2DViewGet,
+  electronControlApiLive2DViewReset,
+  electronControlApiLive2DViewSet,
   electronControlApiSetActiveProvider,
   electronControlApiSpeechSynthesize,
 } from '../../shared/eventa'
@@ -132,6 +143,8 @@ function useControlApiStores() {
   const chatStreamStore = useChatStreamStore()
   const airiCardStore = useAiriCardStore()
   const expressionStore = useExpressionStore()
+  const live2dViewControl = useL2dViewControl()
+  const live2dParamsStore = useLive2dParams()
 
   async function ensureChatReady() {
     if (!chatSessionStore.isReady)
@@ -353,6 +366,54 @@ function useControlApiStores() {
     return expressionOperation({ success: true })
   }
 
+  function live2dViewSnapshot(): ControlApiLive2DViewSnapshot {
+    return {
+      position: {
+        x: live2dViewControl.position.value.x,
+        y: live2dViewControl.position.value.y,
+      },
+      scale: live2dViewControl.scale.value,
+    }
+  }
+
+  function setLive2DView(payload: ControlApiLive2DViewSetRequest): ControlApiLive2DViewSnapshot {
+    if (payload.x !== undefined)
+      live2dViewControl.set('x', payload.x)
+    if (payload.y !== undefined)
+      live2dViewControl.set('y', payload.y)
+    if (payload.scale !== undefined)
+      live2dViewControl.set('scale', payload.scale)
+
+    return live2dViewSnapshot()
+  }
+
+  function resetLive2DView(payload: ControlApiLive2DViewResetRequest): ControlApiLive2DViewSnapshot {
+    const controls: ControlApiLive2DViewControl[] = payload.controls?.length
+      ? payload.controls
+      : ['x', 'y', 'scale']
+
+    for (const control of controls)
+      live2dViewControl.set(control)
+
+    return live2dViewSnapshot()
+  }
+
+  function live2dMotionSnapshot(): ControlApiLive2DMotionSnapshot {
+    return {
+      current: { ...live2dParamsStore.currentMotion },
+      available: live2dParamsStore.availableMotions.map(motion => ({ ...motion })),
+    }
+  }
+
+  function playLive2DMotion(payload: ControlApiLive2DMotionPlayRequest): ControlApiLive2DMotionSnapshot {
+    live2dParamsStore.currentMotion = {
+      group: payload.group,
+      ...(payload.index === undefined ? {} : { index: payload.index }),
+    }
+
+    return live2dMotionSnapshot()
+  }
+
   async function getStatus(routePath: string): Promise<ControlApiRuntimeStatus> {
     await ensureChatReady()
     return {
@@ -396,6 +457,11 @@ function useControlApiStores() {
     setExpression,
     setExpressionLlmExposed,
     setExpressionLlmMode,
+    live2dMotionSnapshot,
+    live2dViewSnapshot,
+    playLive2DMotion,
+    resetLive2DView,
+    setLive2DView,
     synthesizeSpeech,
     toggleExpression,
     providersStore,
@@ -458,6 +524,11 @@ export function initializeControlApiRendererBridge(options: ControlApiRendererBr
     defineInvokeHandler(options.context, electronControlApiExpressionSaveDefaults, () => stores.saveExpressionDefaults()),
     defineInvokeHandler(options.context, electronControlApiExpressionSetLlmMode, payload => stores.setExpressionLlmMode(payload)),
     defineInvokeHandler(options.context, electronControlApiExpressionSetLlmExposed, payload => stores.setExpressionLlmExposed(payload)),
+    defineInvokeHandler(options.context, electronControlApiLive2DViewGet, () => stores.live2dViewSnapshot()),
+    defineInvokeHandler(options.context, electronControlApiLive2DViewSet, payload => stores.setLive2DView(payload)),
+    defineInvokeHandler(options.context, electronControlApiLive2DViewReset, payload => stores.resetLive2DView(payload)),
+    defineInvokeHandler(options.context, electronControlApiLive2DMotionList, () => stores.live2dMotionSnapshot()),
+    defineInvokeHandler(options.context, electronControlApiLive2DMotionPlay, payload => stores.playLive2DMotion(payload)),
   ]
 
   return () => {

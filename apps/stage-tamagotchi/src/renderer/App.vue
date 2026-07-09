@@ -55,6 +55,7 @@ import { initializeStageThreeRuntimeTraceBridge } from './bridges/stage-three-ru
 import { useLanguage } from './composables/use-language'
 import { createChatSyncWindowLifecycle, resolveInitialChatSyncRoutePath } from './stores/chat-sync-lifecycle'
 import { useTamagotchiDesktopControlToolsStore } from './stores/desktop-control-tools'
+import { useTamagotchiLive2DControlToolsStore } from './stores/live2d-control-tools'
 import { useTamagotchiMcpToolsStore } from './stores/mcp-tools'
 import { useTamagotchiPluginToolsStore } from './stores/plugin-tools'
 import { useServerChannelSettingsStore } from './stores/settings/server-channel'
@@ -90,6 +91,7 @@ function createFullStageRuntime() {
   const mcpToolsStore = useTamagotchiMcpToolsStore()
   const pluginToolsStore = useTamagotchiPluginToolsStore()
   const desktopControlToolsStore = useTamagotchiDesktopControlToolsStore()
+  const live2dControlToolsStore = useTamagotchiLive2DControlToolsStore()
   const stageWindowLifecycleStore = useStageWindowLifecycleStore()
   const settingsAudioDeviceStore = useSettingsAudioDevice()
   const artistryStore = useArtistryStore()
@@ -173,6 +175,9 @@ function createFullStageRuntime() {
   void desktopControlToolsStore.refresh().catch((error) => {
     console.warn('[App] Failed to refresh desktop control runtime tools:', error)
   })
+  void live2dControlToolsStore.refresh().catch((error) => {
+    console.warn('[App] Failed to refresh Live2D control runtime tools:', error)
+  })
   void refreshPluginRuntimeTools()
 
   watch([activeProvider, artistryGlobals, activeModel, defaultPromptPrefix, providerOptions], () => {
@@ -254,6 +259,7 @@ function createFullStageRuntime() {
         contextBridgeStore.dispose()
       mcpToolsStore.dispose()
       desktopControlToolsStore.dispose()
+      live2dControlToolsStore.dispose()
       pluginToolsStore.dispose()
     },
   }
