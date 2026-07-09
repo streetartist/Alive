@@ -38,6 +38,49 @@ describe('createControlApiApp', () => {
         setActiveProvider: vi.fn(async () => ({ active: {}, available: {}, configured: {} })),
         getProviderModels: vi.fn(async payload => ({ providerId: payload.providerId, models: [] })),
         speechSynthesize: vi.fn(async () => ({ contentType: 'audio/wav', byteLength: 0, audioBase64: '' })),
+        expressionList: vi.fn(async () => ({
+          modelId: 'KITU_RE23.model3.json',
+          groups: [
+            {
+              name: 'Frightened',
+              active: false,
+              exposedToLlm: true,
+              parameters: [{ parameterId: 'ParamFrightened', blend: 'Add', value: 1 }],
+            },
+          ],
+          llmMode: 'all',
+          llmExposed: {},
+        })),
+        expressionSet: vi.fn(async payload => ({
+          ok: true,
+          result: { success: true, payload },
+          expressions: { modelId: 'KITU_RE23.model3.json', groups: [], llmMode: 'all', llmExposed: {} },
+        })),
+        expressionToggle: vi.fn(async payload => ({
+          ok: true,
+          result: { success: true, payload },
+          expressions: { modelId: 'KITU_RE23.model3.json', groups: [], llmMode: 'all', llmExposed: {} },
+        })),
+        expressionResetAll: vi.fn(async () => ({
+          ok: true,
+          result: { success: true },
+          expressions: { modelId: 'KITU_RE23.model3.json', groups: [], llmMode: 'all', llmExposed: {} },
+        })),
+        expressionSaveDefaults: vi.fn(async () => ({
+          ok: true,
+          result: { success: true },
+          expressions: { modelId: 'KITU_RE23.model3.json', groups: [], llmMode: 'all', llmExposed: {} },
+        })),
+        expressionSetLlmMode: vi.fn(async payload => ({
+          ok: true,
+          result: { success: true, payload },
+          expressions: { modelId: 'KITU_RE23.model3.json', groups: [], llmMode: payload.mode, llmExposed: {} },
+        })),
+        expressionSetLlmExposed: vi.fn(async payload => ({
+          ok: true,
+          result: { success: true, payload },
+          expressions: { modelId: 'KITU_RE23.model3.json', groups: [], llmMode: 'custom', llmExposed: { [payload.name]: payload.enabled } },
+        })),
       },
       windows: {
         openMain: vi.fn(async () => undefined),
@@ -207,6 +250,68 @@ describe('createControlApiApp', () => {
     expect(options.mcp.callTool).toHaveBeenCalledWith({
       name: 'server::tool',
       arguments: { query: 'weather' },
+    })
+  })
+
+  it('forwards Live2D expression list requests to the renderer', async () => {
+    const options = createOptions()
+    await listen(options)
+
+    const response = await fetch(`${baseUrl}/v1/live2d/expressions`, {
+      headers: authHeaders(),
+    })
+
+    expect(response.status).toBe(200)
+    expect(options.renderer.expressionList).toHaveBeenCalledOnce()
+    expect(await response.json()).toMatchObject({
+      modelId: 'KITU_RE23.model3.json',
+      groups: [
+        {
+          name: 'Frightened',
+          active: false,
+          exposedToLlm: true,
+        },
+      ],
+      llmMode: 'all',
+    })
+  })
+
+  it('forwards Live2D expression toggle requests and publishes operation events', async () => {
+    const options = createOptions()
+    const operations: unknown[] = []
+    options.events.subscribe((event) => {
+      if (event.type === 'operation')
+        operations.push(event.payload)
+    })
+    await listen(options)
+
+    const response = await fetch(`${baseUrl}/v1/live2d/expressions/toggle`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ name: 'Frightened', duration: 3 }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(options.renderer.expressionToggle).toHaveBeenCalledWith({ name: 'Frightened', duration: 3 })
+    expect(operations).toContainEqual({ operation: 'live2d.expression.toggle', payload: { name: 'Frightened', duration: 3 } })
+  })
+
+  it('rejects invalid Live2D expression set values before calling the renderer', async () => {
+    const options = createOptions()
+    await listen(options)
+
+    const response = await fetch(`${baseUrl}/v1/live2d/expressions/set`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ name: 'Frightened', value: { invalid: true } }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(options.renderer.expressionSet).not.toHaveBeenCalled()
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: 'FIELD_INVALID',
+      },
     })
   })
 })

@@ -18,6 +18,10 @@ import type {
   ControlApiChatSelectSessionRequest,
   ControlApiChatSendRequest,
   ControlApiChatSpotlightRequest,
+  ControlApiExpressionLlmExposedRequest,
+  ControlApiExpressionLlmModeRequest,
+  ControlApiExpressionSetRequest,
+  ControlApiExpressionToggleRequest,
   ControlApiProviderModelsRequest,
   ControlApiProviderSetActiveRequest,
   ControlApiSpeechSynthesizeRequest,
@@ -54,6 +58,13 @@ export interface ControlApiRendererClient {
   setActiveProvider: (payload: ControlApiProviderSetActiveRequest) => Promise<unknown>
   getProviderModels: (payload: ControlApiProviderModelsRequest) => Promise<unknown>
   speechSynthesize: (payload: ControlApiSpeechSynthesizeRequest) => Promise<unknown>
+  expressionList: () => Promise<unknown>
+  expressionSet: (payload: ControlApiExpressionSetRequest) => Promise<unknown>
+  expressionToggle: (payload: ControlApiExpressionToggleRequest) => Promise<unknown>
+  expressionResetAll: () => Promise<unknown>
+  expressionSaveDefaults: () => Promise<unknown>
+  expressionSetLlmMode: (payload: ControlApiExpressionLlmModeRequest) => Promise<unknown>
+  expressionSetLlmExposed: (payload: ControlApiExpressionLlmExposedRequest) => Promise<unknown>
 }
 
 export interface ControlApiWindowControllers {
@@ -339,6 +350,13 @@ function optionalBoolean(record: Record<string, unknown>, key: string): boolean 
   return value
 }
 
+function requireBoolean(record: Record<string, unknown>, key: string): boolean {
+  const value = optionalBoolean(record, key)
+  if (value === undefined)
+    throw new ControlApiHttpError(400, 'FIELD_REQUIRED', `Field "${key}" must be a boolean.`)
+  return value
+}
+
 function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {
   const value = record[key]
   if (value === undefined)
@@ -385,6 +403,25 @@ function requireProviderKind(value: string): ControlApiProviderSetActiveRequest[
   if (!providerKinds.has(value))
     throw new ControlApiHttpError(400, 'PROVIDER_KIND_INVALID', 'Provider kind must be chat, speech, transcription, or vision.')
   return value as ControlApiProviderSetActiveRequest['kind']
+}
+
+function requireExpressionValue(record: Record<string, unknown>, key: string): ControlApiExpressionSetRequest['value'] {
+  const value = record[key]
+  if (typeof value === 'boolean')
+    return value
+  if (typeof value === 'number' && Number.isFinite(value))
+    return value
+  if (value === undefined)
+    throw new ControlApiHttpError(400, 'FIELD_REQUIRED', `Field "${key}" must be a boolean or finite number.`)
+  throw new ControlApiHttpError(400, 'FIELD_INVALID', `Field "${key}" must be a boolean or finite number.`)
+}
+
+function requireExpressionLlmMode(value: string): ControlApiExpressionLlmModeRequest['mode'] {
+  if (value !== 'all' && value !== 'none' && value !== 'custom') {
+    throw new ControlApiHttpError(400, 'FIELD_INVALID', 'Field "mode" must be "all", "none", or "custom".')
+  }
+
+  return value
 }
 
 function optionalWidgetSize(record: Record<string, unknown>, key: string): WidgetsAddPayload['size'] | undefined {
@@ -479,6 +516,7 @@ function capabilities() {
       chat: ['send', 'spotlight', 'interruptQueued', 'retry', 'cleanup', 'deleteMessage', 'sessions', 'messages'],
       providers: ['list', 'setActive', 'models'],
       speech: ['synthesize'],
+      live2dExpressions: ['list', 'set', 'toggle', 'reset', 'saveDefaults', 'llmMode', 'llmExposed'],
       mcp: ['status', 'tools', 'callTool', 'config', 'restart', 'testServer'],
       widgets: ['list', 'open', 'hide', 'add', 'update', 'remove', 'clear', 'event'],
       godotStage: ['status', 'start', 'stop', 'viewSnapshot', 'viewPatch', 'requestViewSnapshot'],
@@ -665,6 +703,64 @@ export function createControlApiApp(options: ControlApiRouteOptions) {
     }
     publishOperation(options, 'speech.synthesize')
     return await options.renderer.speechSynthesize(payload)
+  }))
+
+  app.get('/v1/live2d/expressions', route(options, () => options.renderer.expressionList()))
+
+  app.post('/v1/live2d/expressions/set', route(options, async (event) => {
+    const body = await readJsonRecord(event)
+    const payload = {
+      name: requireString(body, 'name'),
+      value: requireExpressionValue(body, 'value'),
+      duration: optionalNumber(body, 'duration'),
+    }
+    const result = await options.renderer.expressionSet(payload)
+    publishOperation(options, 'live2d.expression.set', payload)
+    return result
+  }))
+
+  app.post('/v1/live2d/expressions/toggle', route(options, async (event) => {
+    const body = await readJsonRecord(event)
+    const payload = {
+      name: requireString(body, 'name'),
+      duration: optionalNumber(body, 'duration'),
+    }
+    const result = await options.renderer.expressionToggle(payload)
+    publishOperation(options, 'live2d.expression.toggle', payload)
+    return result
+  }))
+
+  app.post('/v1/live2d/expressions/reset', route(options, async () => {
+    const result = await options.renderer.expressionResetAll()
+    publishOperation(options, 'live2d.expression.reset')
+    return result
+  }))
+
+  app.post('/v1/live2d/expressions/save-defaults', route(options, async () => {
+    const result = await options.renderer.expressionSaveDefaults()
+    publishOperation(options, 'live2d.expression.save-defaults')
+    return result
+  }))
+
+  app.post('/v1/live2d/expressions/llm-mode', route(options, async (event) => {
+    const body = await readJsonRecord(event)
+    const payload = {
+      mode: requireExpressionLlmMode(requireString(body, 'mode')),
+    }
+    const result = await options.renderer.expressionSetLlmMode(payload)
+    publishOperation(options, 'live2d.expression.llm-mode.set', payload)
+    return result
+  }))
+
+  app.post('/v1/live2d/expressions/llm-exposed', route(options, async (event) => {
+    const body = await readJsonRecord(event)
+    const payload = {
+      name: requireString(body, 'name'),
+      enabled: requireBoolean(body, 'enabled'),
+    }
+    const result = await options.renderer.expressionSetLlmExposed(payload)
+    publishOperation(options, 'live2d.expression.llm-exposed.set', payload)
+    return result
   }))
 
   app.get('/v1/mcp/status', route(options, () => options.mcp.getRuntimeStatus()))

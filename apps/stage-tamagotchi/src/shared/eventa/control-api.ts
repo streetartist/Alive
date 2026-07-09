@@ -143,6 +143,55 @@ export interface ControlApiSpeechSynthesizeResponse {
   audioBase64: string
 }
 
+export type ControlApiExpressionBlendMode = 'Add' | 'Multiply' | 'Overwrite'
+export type ControlApiExpressionLlmMode = 'all' | 'none' | 'custom'
+
+export interface ControlApiExpressionParameterSnapshot {
+  parameterId: string
+  blend: ControlApiExpressionBlendMode
+  value: number
+}
+
+export interface ControlApiExpressionGroupSnapshot {
+  name: string
+  active: boolean
+  exposedToLlm: boolean
+  parameters: ControlApiExpressionParameterSnapshot[]
+}
+
+export interface ControlApiExpressionSnapshot {
+  modelId: string
+  groups: ControlApiExpressionGroupSnapshot[]
+  llmMode: ControlApiExpressionLlmMode
+  llmExposed: Record<string, boolean>
+}
+
+export interface ControlApiExpressionSetRequest {
+  name: string
+  value: boolean | number
+  duration?: number
+}
+
+export interface ControlApiExpressionToggleRequest {
+  name: string
+  duration?: number
+}
+
+export interface ControlApiExpressionLlmModeRequest {
+  mode: ControlApiExpressionLlmMode
+}
+
+export interface ControlApiExpressionLlmExposedRequest {
+  name: string
+  enabled: boolean
+}
+
+export interface ControlApiExpressionOperationResponse {
+  ok: boolean
+  result: unknown
+  expressions: ControlApiExpressionSnapshot
+}
+
 export interface ControlApiRuntimeStatus {
   ready: boolean
   route: string
@@ -169,3 +218,10 @@ export const electronControlApiGetProviderStatus = defineInvokeEventa<ControlApi
 export const electronControlApiSetActiveProvider = defineInvokeEventa<ControlApiProviderStatus, ControlApiProviderSetActiveRequest>('eventa:invoke:electron:control-api:providers:set-active')
 export const electronControlApiGetProviderModels = defineInvokeEventa<ControlApiProviderModelsResponse, ControlApiProviderModelsRequest>('eventa:invoke:electron:control-api:providers:models')
 export const electronControlApiSpeechSynthesize = defineInvokeEventa<ControlApiSpeechSynthesizeResponse, ControlApiSpeechSynthesizeRequest>('eventa:invoke:electron:control-api:speech:synthesize')
+export const electronControlApiExpressionList = defineInvokeEventa<ControlApiExpressionSnapshot>('eventa:invoke:electron:control-api:expressions:list')
+export const electronControlApiExpressionSet = defineInvokeEventa<ControlApiExpressionOperationResponse, ControlApiExpressionSetRequest>('eventa:invoke:electron:control-api:expressions:set')
+export const electronControlApiExpressionToggle = defineInvokeEventa<ControlApiExpressionOperationResponse, ControlApiExpressionToggleRequest>('eventa:invoke:electron:control-api:expressions:toggle')
+export const electronControlApiExpressionResetAll = defineInvokeEventa<ControlApiExpressionOperationResponse>('eventa:invoke:electron:control-api:expressions:reset-all')
+export const electronControlApiExpressionSaveDefaults = defineInvokeEventa<ControlApiExpressionOperationResponse>('eventa:invoke:electron:control-api:expressions:save-defaults')
+export const electronControlApiExpressionSetLlmMode = defineInvokeEventa<ControlApiExpressionOperationResponse, ControlApiExpressionLlmModeRequest>('eventa:invoke:electron:control-api:expressions:llm-mode:set')
+export const electronControlApiExpressionSetLlmExposed = defineInvokeEventa<ControlApiExpressionOperationResponse, ControlApiExpressionLlmExposedRequest>('eventa:invoke:electron:control-api:expressions:llm-exposed:set')

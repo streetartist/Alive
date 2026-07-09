@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import type { ModelSettingsRuntimeSnapshot } from '@proj-airi/stage-ui/components/scenarios/settings/model-settings/runtime'
 
-import type { ModelSettingsRuntimeChannelEvent } from '../../shared/model-settings-runtime'
+import type {
+  ModelSettingsLive2DExpressionCommand,
+  ModelSettingsRuntimeChannelEvent,
+} from '../../shared/model-settings-runtime'
 
 import workletUrl from '@proj-airi/stage-ui/workers/vad/process.worklet?worker&url'
 
@@ -17,6 +20,7 @@ import {
 import { IS_DEV } from '@proj-airi/stage-shared'
 import { useModelStore, useThreeSceneIsTransparentAtPoint } from '@proj-airi/stage-ui-three'
 import { HoloCoupon } from '@proj-airi/stage-ui/components'
+import { createLive2DExpressionSnapshot } from '@proj-airi/stage-ui/components/scenarios/settings/model-settings'
 import {
   createEmptyModelSettingsRuntimeSnapshot,
   resolveComponentStateToRuntimePhase,
@@ -28,6 +32,7 @@ import { useVAD } from '@proj-airi/stage-ui/stores/ai/models/vad'
 import { useHearingSpeechInputPipeline } from '@proj-airi/stage-ui/stores/modules/hearing'
 import { useOnboardingStore } from '@proj-airi/stage-ui/stores/onboarding'
 import { useSettings, useSettingsAudioDevice } from '@proj-airi/stage-ui/stores/settings'
+import { useExpressionStore } from '@proj-airi/stage-ui-live2d'
 import { refDebounced, useBroadcastChannel } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, toRef, watch } from 'vue'
@@ -82,8 +87,16 @@ const isTransparentByThree = useThreeSceneIsTransparentAtPoint(
 
 const settingsStore = useSettings()
 const { stageModelRenderer, stageModelSelectedUrl } = storeToRefs(settingsStore)
+const expressionStore = useExpressionStore()
 const modelStore = useModelStore()
 const { sceneMutationLocked, scenePhase } = storeToRefs(modelStore)
+const {
+  expressions,
+  expressionGroups,
+  activeExpressionGroups,
+  llmExposed,
+  llmMode,
+} = storeToRefs(expressionStore)
 const { stagePaused } = storeToRefs(useStageWindowLifecycleStore())
 const { fadeOnHoverEnabled } = storeToRefs(useControlsIslandStore())
 const modelSettingsRuntimeOwnerInstanceId = `tamagotchi-main-stage:${Math.random().toString(36).slice(2, 10)}`
@@ -117,6 +130,13 @@ const { pause, resume } = watch(isTransparent, (transparent) => {
 }, { immediate: true })
 
 const hearingDialogOpen = computed(() => controlsIslandRef.value?.hearingDialogOpen ?? false)
+const live2dExpressionSnapshot = computed(() => createLive2DExpressionSnapshot({
+  groups: expressionGroups.value.values(),
+  expressions: expressions.value,
+  activeExpressionGroups: activeExpressionGroups.value,
+  llmMode: llmMode.value,
+  llmExposed: llmExposed.value,
+}))
 
 const modelSettingsRuntimeSnapshot = computed<ModelSettingsRuntimeSnapshot>(() => {
   const hasModel = !!stageModelSelectedUrl.value
@@ -131,6 +151,7 @@ const modelSettingsRuntimeSnapshot = computed<ModelSettingsRuntimeSnapshot>(() =
       controlsLocked: hasModel ? phase !== 'mounted' : false,
       previewAvailable: hasModel,
       canCapturePreview: false,
+      live2dExpressions: live2dExpressionSnapshot.value,
       updatedAt: Date.now(),
     })
   }
@@ -228,11 +249,40 @@ watch(modelSettingsRuntimeSnapshot, (snapshot) => {
 }, { immediate: true })
 
 watch(modelSettingsRuntimeChannelEvent, (event) => {
-  if (event?.type !== 'request-current')
+  if (!event)
     return
 
-  postModelSettingsRuntimeChannelEvent({ type: 'snapshot', snapshot: modelSettingsRuntimeSnapshot.value })
+  if (event.type === 'request-current') {
+    postModelSettingsRuntimeChannelEvent({ type: 'snapshot', snapshot: modelSettingsRuntimeSnapshot.value })
+    return
+  }
+
+  if (event.type === 'live2d-expression-command')
+    handleLive2DExpressionCommand(event.command)
 })
+
+function handleLive2DExpressionCommand(command: ModelSettingsLive2DExpressionCommand) {
+  if (stageModelRenderer.value !== 'live2d')
+    return
+
+  switch (command.action) {
+    case 'toggle':
+      expressionStore.toggle(command.name)
+      break
+    case 'save-defaults':
+      expressionStore.saveDefaults()
+      break
+    case 'reset-all':
+      expressionStore.resetAll()
+      break
+    case 'set-llm-mode':
+      expressionStore.setLlmMode(command.mode)
+      break
+    case 'set-llm-exposed':
+      expressionStore.setLlmExposed(command.name, command.value)
+      break
+  }
+}
 
 const settingsAudioDeviceStore = useSettingsAudioDevice()
 const { stream, enabled } = storeToRefs(settingsAudioDeviceStore)

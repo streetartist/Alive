@@ -30,8 +30,8 @@ const enabled = computed(() => controlsIslandStore.chatBubbleEnabled)
       @click="controlsIslandStore.toggleChatBubble()"
     >
       <Transition name="fade" mode="out-in">
-        <div v-if="enabled" i-solar:chat-line-line-duotone :class="props.iconClass" text="primary-700 dark:primary-300" />
-        <div v-else i-solar:chat-line-line-duotone :class="props.iconClass" text="neutral-800 dark:neutral-300 opacity-50" />
+        <div v-if="enabled" i-solar:chat-round-line-bold-duotone :class="props.iconClass" text="primary-700 dark:primary-300" />
+        <div v-else i-solar:chat-round-line-bold-duotone :class="props.iconClass" text="neutral-800 dark:neutral-300 opacity-50" />
       </Transition>
     </ControlButton>
 

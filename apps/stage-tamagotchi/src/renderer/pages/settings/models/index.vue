@@ -4,6 +4,7 @@ import type {
   StageViewPatch,
   StageViewSnapshotPayload,
 } from '@proj-airi/stage-shared/godot-stage'
+import type { ModelSettingsLive2DExpressionLlmMode } from '@proj-airi/stage-ui/components/scenarios/settings/model-settings'
 import type { DisplayModel } from '@proj-airi/stage-ui/stores/display-models'
 
 import type {
@@ -61,7 +62,7 @@ const godotStageStatus = ref<ElectronGodotStageStatus>({
 const switchingGodotStage = ref(false)
 const godotViewError = ref<StageViewErrorPayload>()
 const godotViewSnapshot = ref<StageViewSnapshotPayload | null>(null)
-const { runtimeSnapshot } = useModelSettingsRuntimeSnapshot()
+const { runtimeSnapshot, sendLive2DExpressionCommand } = useModelSettingsRuntimeSnapshot()
 
 let sceneSyncGeneration = 0
 let godotSessionEpoch = 0
@@ -233,6 +234,30 @@ function handleGodotViewPatch(patch: StageViewPatch) {
   godotViewPatchQueue.enqueue(patch)
 }
 
+function handleLive2DExpressionToggle(name: string) {
+  sendLive2DExpressionCommand({ action: 'toggle', name })
+}
+
+function handleLive2DExpressionSaveDefaults() {
+  sendLive2DExpressionCommand({ action: 'save-defaults' })
+}
+
+function handleLive2DExpressionResetAll() {
+  sendLive2DExpressionCommand({ action: 'reset-all' })
+}
+
+function handleLive2DExpressionLlmModeChange(mode: ModelSettingsLive2DExpressionLlmMode) {
+  sendLive2DExpressionCommand({ action: 'set-llm-mode', mode })
+}
+
+function handleLive2DExpressionLlmExposedChange(payload: { name: string, value: boolean }) {
+  sendLive2DExpressionCommand({
+    action: 'set-llm-exposed',
+    name: payload.name,
+    value: payload.value,
+  })
+}
+
 async function handleGodotViewSnapshotRequest(epoch = godotSessionEpoch) {
   try {
     await requestGodotStageViewSnapshot()
@@ -386,6 +411,11 @@ onUnmounted(() => {
           'overflow-y-scroll',
           'relative',
         ]"
+        @live2d-expression-toggle="handleLive2DExpressionToggle"
+        @live2d-expression-save-defaults="handleLive2DExpressionSaveDefaults"
+        @live2d-expression-reset-all="handleLive2DExpressionResetAll"
+        @live2d-expression-llm-mode-change="handleLive2DExpressionLlmModeChange"
+        @live2d-expression-llm-exposed-change="handleLive2DExpressionLlmExposedChange"
         @patch-godot-view-state="handleGodotViewPatch"
       >
         <template #actions>

@@ -2,7 +2,10 @@ import type {
   ModelSettingsRuntimeSnapshot,
 } from '@proj-airi/stage-ui/components/scenarios/settings/model-settings/runtime'
 
-import type { ModelSettingsRuntimeChannelEvent } from '../../shared/model-settings-runtime'
+import type {
+  ModelSettingsLive2DExpressionCommand,
+  ModelSettingsRuntimeChannelEvent,
+} from '../../shared/model-settings-runtime'
 
 import {
   createEmptyModelSettingsRuntimeSnapshot,
@@ -22,6 +25,9 @@ export function useModelSettingsRuntimeSnapshot() {
 
   const requestCurrent = () => {
     post({ type: 'request-current' })
+  }
+  const sendLive2DExpressionCommand = (command: ModelSettingsLive2DExpressionCommand) => {
+    post({ type: 'live2d-expression-command', command })
   }
 
   const syncFromOwner = () => {
@@ -63,5 +69,6 @@ export function useModelSettingsRuntimeSnapshot() {
   return {
     runtimeSnapshot,
     requestCurrent,
+    sendLive2DExpressionCommand,
   }
 }

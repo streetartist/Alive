@@ -7,6 +7,12 @@ import type {
   ControlApiChatInterruptResult,
   ControlApiChatMessagesRequest,
   ControlApiChatMessagesSnapshot,
+  ControlApiExpressionLlmExposedRequest,
+  ControlApiExpressionLlmModeRequest,
+  ControlApiExpressionOperationResponse,
+  ControlApiExpressionSetRequest,
+  ControlApiExpressionSnapshot,
+  ControlApiExpressionToggleRequest,
   ControlApiChatSessionsSnapshot,
   ControlApiProviderModelsResponse,
   ControlApiProviderSetActiveRequest,
@@ -27,6 +33,7 @@ import { useHearingStore } from '@proj-airi/stage-ui/stores/modules/hearing'
 import { useSpeechStore } from '@proj-airi/stage-ui/stores/modules/speech'
 import { useVisionStore } from '@proj-airi/stage-ui/stores/modules/vision/store'
 import { useProvidersStore } from '@proj-airi/stage-ui/stores/providers'
+import { useExpressionStore } from '@proj-airi/stage-ui-live2d'
 
 import {
   electronControlApiChatCleanup,
@@ -39,6 +46,13 @@ import {
   electronControlApiChatSelectSession,
   electronControlApiChatSend,
   electronControlApiChatSpotlight,
+  electronControlApiExpressionList,
+  electronControlApiExpressionResetAll,
+  electronControlApiExpressionSaveDefaults,
+  electronControlApiExpressionSet,
+  electronControlApiExpressionSetLlmExposed,
+  electronControlApiExpressionSetLlmMode,
+  electronControlApiExpressionToggle,
   electronControlApiGetProviderModels,
   electronControlApiGetProviderStatus,
   electronControlApiGetStatus,
@@ -117,6 +131,7 @@ function useControlApiStores() {
   const chatOrchestratorStore = useChatOrchestratorStore()
   const chatStreamStore = useChatStreamStore()
   const airiCardStore = useAiriCardStore()
+  const expressionStore = useExpressionStore()
 
   async function ensureChatReady() {
     if (!chatSessionStore.isReady)
@@ -282,6 +297,62 @@ function useControlApiStores() {
     }
   }
 
+  function expressionSnapshot(): ControlApiExpressionSnapshot {
+    return {
+      modelId: expressionStore.modelId,
+      groups: Array.from(expressionStore.expressionGroups.values()).map(group => ({
+        name: group.name,
+        active: expressionStore.activeExpressionGroups.has(group.name),
+        exposedToLlm: expressionStore.isExposedToLlm(group.name),
+        parameters: group.parameters.map(parameter => ({
+          parameterId: parameter.parameterId,
+          blend: parameter.blend,
+          value: parameter.value,
+        })),
+      })),
+      llmMode: expressionStore.llmMode,
+      llmExposed: Object.fromEntries(expressionStore.llmExposed),
+    }
+  }
+
+  function expressionOperation(result: unknown, ok = true): ControlApiExpressionOperationResponse {
+    return {
+      ok,
+      result,
+      expressions: expressionSnapshot(),
+    }
+  }
+
+  function setExpression(payload: ControlApiExpressionSetRequest): ControlApiExpressionOperationResponse {
+    const result = expressionStore.set(payload.name, payload.value, payload.duration)
+    return expressionOperation(result, result.success)
+  }
+
+  function toggleExpression(payload: ControlApiExpressionToggleRequest): ControlApiExpressionOperationResponse {
+    const result = expressionStore.toggle(payload.name, payload.duration)
+    return expressionOperation(result, result.success)
+  }
+
+  function resetExpressions(): ControlApiExpressionOperationResponse {
+    const result = expressionStore.resetAll()
+    return expressionOperation(result, result.success)
+  }
+
+  function saveExpressionDefaults(): ControlApiExpressionOperationResponse {
+    const result = expressionStore.saveDefaults()
+    return expressionOperation(result, result.success)
+  }
+
+  function setExpressionLlmMode(payload: ControlApiExpressionLlmModeRequest): ControlApiExpressionOperationResponse {
+    expressionStore.setLlmMode(payload.mode)
+    return expressionOperation({ success: true })
+  }
+
+  function setExpressionLlmExposed(payload: ControlApiExpressionLlmExposedRequest): ControlApiExpressionOperationResponse {
+    expressionStore.setLlmExposed(payload.name, payload.enabled)
+    return expressionOperation({ success: true })
+  }
+
   async function getStatus(routePath: string): Promise<ControlApiRuntimeStatus> {
     await ensureChatReady()
     return {
@@ -319,7 +390,14 @@ function useControlApiStores() {
     providerStatus,
     setActiveProvider,
     createSession,
+    expressionSnapshot,
+    resetExpressions,
+    saveExpressionDefaults,
+    setExpression,
+    setExpressionLlmExposed,
+    setExpressionLlmMode,
     synthesizeSpeech,
+    toggleExpression,
     providersStore,
   }
 }
@@ -373,6 +451,13 @@ export function initializeControlApiRendererBridge(options: ControlApiRendererBr
       }
     }),
     defineInvokeHandler(options.context, electronControlApiSpeechSynthesize, payload => stores.synthesizeSpeech(payload)),
+    defineInvokeHandler(options.context, electronControlApiExpressionList, () => stores.expressionSnapshot()),
+    defineInvokeHandler(options.context, electronControlApiExpressionSet, payload => stores.setExpression(payload)),
+    defineInvokeHandler(options.context, electronControlApiExpressionToggle, payload => stores.toggleExpression(payload)),
+    defineInvokeHandler(options.context, electronControlApiExpressionResetAll, () => stores.resetExpressions()),
+    defineInvokeHandler(options.context, electronControlApiExpressionSaveDefaults, () => stores.saveExpressionDefaults()),
+    defineInvokeHandler(options.context, electronControlApiExpressionSetLlmMode, payload => stores.setExpressionLlmMode(payload)),
+    defineInvokeHandler(options.context, electronControlApiExpressionSetLlmExposed, payload => stores.setExpressionLlmExposed(payload)),
   ]
 
   return () => {

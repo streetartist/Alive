@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import type { ModelSettingsRuntimeSnapshot } from './runtime'
+import type {
+  ModelSettingsLive2DExpressionGroupSnapshot,
+  ModelSettingsLive2DExpressionLlmMode,
+  ModelSettingsRuntimeSnapshot,
+} from './runtime'
 
 import { defaultModelParameters, useExpressionStore, useLive2dParams, useSettingsLive2d } from '@proj-airi/stage-ui-live2d'
 import { OPFSCache } from '@proj-airi/stage-ui-live2d/utils/opfs-loader'
@@ -11,6 +15,7 @@ import { useI18n } from 'vue-i18n'
 import { PropertyPoint } from '../../../data-pane'
 import { Section } from '../../../layouts'
 import { ColorPalette } from '../../../widgets'
+import { createLive2DExpressionSnapshot } from './live2d-expression-snapshot'
 
 const props = withDefaults(defineProps<{
   palette: string[]
@@ -19,8 +24,13 @@ const props = withDefaults(defineProps<{
 }>(), {
   allowExtractColors: true,
 })
-defineEmits<{
-  (e: 'extractColorsFromModel'): void
+const emit = defineEmits<{
+  extractColorsFromModel: []
+  live2dExpressionToggle: [name: string]
+  live2dExpressionSaveDefaults: []
+  live2dExpressionResetAll: []
+  live2dExpressionLlmModeChange: [mode: ModelSettingsLive2DExpressionLlmMode]
+  live2dExpressionLlmExposedChange: [payload: { name: string, value: boolean }]
 }>()
 
 const { t } = useI18n()
@@ -48,21 +58,31 @@ const {
 } = storeToRefs(live2d)
 
 const expressionStore = useExpressionStore()
-const { expressions, expressionGroups } = storeToRefs(expressionStore)
+const { expressions, expressionGroups, activeExpressionGroups } = storeToRefs(expressionStore)
 
-/**
- * Check if an expression group is currently active.
- * Only considers non-zero exp3 params (zero-valued params are "reset" instructions).
- * A group is active when at least one of its activation params matches the exp3 value.
- */
-function isGroupActive(group: { parameters: { parameterId: string, value: number }[] }): boolean {
-  return group.parameters.some((p) => {
-    if (p.value === 0)
-      return false // Skip reset params
-    const entry = expressions.value.get(p.parameterId)
-    return entry != null && entry.currentValue === p.value
-  })
+function isLive2DExpressionLlmMode(value: unknown): value is ModelSettingsLive2DExpressionLlmMode {
+  return value === 'all' || value === 'none' || value === 'custom'
 }
+
+const localLive2dExpressionSnapshot = computed(() => createLive2DExpressionSnapshot({
+  groups: expressionGroups.value.values(),
+  expressions: expressions.value,
+  activeExpressionGroups: activeExpressionGroups.value,
+  llmMode: expressionStore.llmMode,
+  llmExposed: expressionStore.llmExposed,
+}))
+const hasRuntimeExpressionSnapshot = computed(() => props.runtimeSnapshot.live2dExpressions.updatedAt > 0)
+const live2dExpressionGroups = computed<ModelSettingsLive2DExpressionGroupSnapshot[]>(() => {
+  if (hasRuntimeExpressionSnapshot.value)
+    return props.runtimeSnapshot.live2dExpressions.groups
+
+  return localLive2dExpressionSnapshot.value.groups
+})
+const live2dExpressionLlmMode = computed<ModelSettingsLive2DExpressionLlmMode>(() => {
+  return hasRuntimeExpressionSnapshot.value
+    ? props.runtimeSnapshot.live2dExpressions.llmMode
+    : localLive2dExpressionSnapshot.value.llmMode
+})
 
 const selectedRuntimeMotion = ref<string>('')
 const runtimeMotions = ref<Array<{ name: string, displayPath: string, group: string, index: number }>>([])
@@ -176,6 +196,34 @@ function handleMotionSelect(selectedMotionPath: string | number | undefined) {
   console.info('Selected runtime motion:', motion.name)
   console.info('Full path:', motion.displayPath)
   console.info('Group:', motion.group, 'Index:', motion.index)
+}
+
+function handleExpressionToggle(name: string) {
+  expressionStore.toggle(name)
+  emit('live2dExpressionToggle', name)
+}
+
+function handleExpressionLlmModeSelect(value: string | number | undefined) {
+  if (!isLive2DExpressionLlmMode(value))
+    return
+
+  expressionStore.setLlmMode(value)
+  emit('live2dExpressionLlmModeChange', value)
+}
+
+function handleExpressionLlmExposedChange(name: string, value: boolean) {
+  expressionStore.setLlmExposed(name, value)
+  emit('live2dExpressionLlmExposedChange', { name, value })
+}
+
+function handleExpressionSaveDefaults() {
+  expressionStore.saveDefaults()
+  emit('live2dExpressionSaveDefaults')
+}
+
+function handleExpressionResetAll() {
+  expressionStore.resetAll()
+  emit('live2dExpressionResetAll')
 }
 
 // async function patchMotionMap(source: File, motionMap: Record<string, string>): Promise<File> {
@@ -723,7 +771,7 @@ function handleMotionSelect(selectedMotionPath: string | number | undefined) {
     <div v-if="!live2dExpressionEnabled" py-2 text-xs text-neutral-500 dark:text-neutral-400>
       {{ t('settings.live2d.expressions.sdk-preset-preserved-notice') }}
     </div>
-    <template v-else-if="expressionGroups.size === 0">
+    <template v-else-if="live2dExpressionGroups.length === 0">
       <div py-2 text-sm text-neutral-500 dark:text-neutral-400>
         {{ t('settings.live2d.expressions.no-expression') }}
       </div>
@@ -732,14 +780,14 @@ function handleMotionSelect(selectedMotionPath: string | number | undefined) {
       <!-- Expression preview toggles -->
       <div flex flex-col gap-2>
         <div
-          v-for="[groupName, group] in expressionGroups"
-          :key="groupName"
+          v-for="group in live2dExpressionGroups"
+          :key="group.name"
           flex items-center justify-between
         >
-          <span text-sm text-neutral-700 dark:text-neutral-300>{{ groupName }}</span>
+          <span text-sm text-neutral-700 dark:text-neutral-300>{{ group.name }}</span>
           <Checkbox
-            :model-value="isGroupActive(group)"
-            @update:model-value="expressionStore.toggle(groupName)"
+            :model-value="group.active"
+            @update:model-value="handleExpressionToggle(group.name)"
           />
         </div>
       </div>
@@ -747,37 +795,37 @@ function handleMotionSelect(selectedMotionPath: string | number | undefined) {
       <div mt-4 flex flex-wrap items-center gap-3>
         <span whitespace-nowrap text-sm text-neutral-600 dark:text-neutral-400>{{ t('settings.live2d.expressions.expose-to-llm-toggle') }}</span>
         <SelectTab
-          :model-value="expressionStore.llmMode"
+          :model-value="live2dExpressionLlmMode"
           :options="llmModeOptions"
           size="sm"
-          @update:model-value="(v: string) => expressionStore.setLlmMode(v as 'all' | 'none' | 'custom')"
+          @update:model-value="handleExpressionLlmModeSelect"
         />
       </div>
-      <span v-if="expressionStore.llmMode !== 'none'" text-xs text-neutral-500 dark:text-neutral-400>
+      <span v-if="live2dExpressionLlmMode !== 'none'" text-xs text-neutral-500 dark:text-neutral-400>
         {{ t('settings.live2d.expressions.llm-integration-wip') }}
       </span>
 
       <!-- Custom per-expression LLM toggles (only when mode = 'custom') -->
-      <div v-if="expressionStore.llmMode === 'custom'" mt-2 flex flex-col gap-2 border-l-2 border-neutral-200 pl-3 dark:border-neutral-700>
+      <div v-if="live2dExpressionLlmMode === 'custom'" mt-2 flex flex-col gap-2 border-l-2 border-neutral-200 pl-3 dark:border-neutral-700>
         <div
-          v-for="[groupName] in expressionGroups"
-          :key="`llm-${groupName}`"
+          v-for="group in live2dExpressionGroups"
+          :key="`llm-${group.name}`"
           flex items-center justify-between
         >
-          <span text-xs text-neutral-600 dark:text-neutral-400>{{ groupName }}</span>
+          <span text-xs text-neutral-600 dark:text-neutral-400>{{ group.name }}</span>
           <Checkbox
-            :model-value="expressionStore.llmExposed.get(groupName) ?? false"
-            @update:model-value="(v: boolean) => expressionStore.setLlmExposed(groupName, v)"
+            :model-value="group.exposedToLlm"
+            @update:model-value="(v: boolean) => handleExpressionLlmExposedChange(group.name, v)"
           />
         </div>
       </div>
 
       <!-- Action buttons -->
       <div mt-4 flex gap-2>
-        <Button variant="secondary" @click="expressionStore.saveDefaults()">
+        <Button variant="secondary" @click="handleExpressionSaveDefaults">
           {{ t('settings.live2d.expressions.save-default') }}
         </Button>
-        <Button variant="secondary" @click="expressionStore.resetAll()">
+        <Button variant="secondary" @click="handleExpressionResetAll">
           {{ t('settings.live2d.expressions.reset') }}
         </Button>
       </div>

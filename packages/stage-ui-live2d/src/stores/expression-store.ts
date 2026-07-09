@@ -119,11 +119,20 @@ export const useExpressionStore = defineStore('live2d-expressions', () => {
    */
   const expressionGroups = ref<Map<string, ExpressionGroupDefinition>>(new Map())
 
+  /**
+   * Expression groups explicitly activated through the UI/tools.
+   * Parameter values are not unique enough to infer this state because several
+   * exp3 files can target the same Live2D parameter with the same value.
+   */
+  const activeExpressionGroups = ref<Set<string>>(new Set())
+
   /** LLM exposure mode: 'all' exposes everything, 'none' exposes nothing, 'custom' uses per-group map. */
   const llmMode = ref<'all' | 'none' | 'custom'>('none')
 
   /** Per-group LLM exposure flags (only used when llmMode === 'custom'). */
   const llmExposed = ref<Map<string, boolean>>(new Map())
+
+  const activeGroupResetTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   // ---- internal helpers ----------------------------------------------------
 
@@ -133,6 +142,31 @@ export const useExpressionStore = defineStore('live2d-expressions', () => {
         clearTimeout(entry.resetTimer)
         entry.resetTimer = undefined
       }
+    }
+
+    for (const timer of activeGroupResetTimers.values())
+      clearTimeout(timer)
+    activeGroupResetTimers.clear()
+  }
+
+  function setActiveExpressionGroup(name: string, active: boolean, duration?: number) {
+    const existingTimer = activeGroupResetTimers.get(name)
+    if (existingTimer != null) {
+      clearTimeout(existingTimer)
+      activeGroupResetTimers.delete(name)
+    }
+
+    const next = new Set(activeExpressionGroups.value)
+    if (active)
+      next.add(name)
+    else
+      next.delete(name)
+    activeExpressionGroups.value = next
+
+    if (active && duration && duration > 0) {
+      activeGroupResetTimers.set(name, setTimeout(() => {
+        setActiveExpressionGroup(name, false)
+      }, duration * 1000))
     }
   }
 
@@ -164,6 +198,7 @@ export const useExpressionStore = defineStore('live2d-expressions', () => {
     clearAllTimers()
     expressions.value = new Map()
     expressionGroups.value = new Map()
+    activeExpressionGroups.value = new Set()
     modelId.value = id
 
     // Register expression groups
@@ -230,6 +265,7 @@ export const useExpressionStore = defineStore('live2d-expressions', () => {
           states.push(toState(entry))
         }
       }
+      setActiveExpressionGroup(resolved.group.name, numericValue !== 0, duration)
       return { success: true, state: states }
     }
 
@@ -287,15 +323,7 @@ export const useExpressionStore = defineStore('live2d-expressions', () => {
     }
 
     if (resolved.kind === 'group') {
-      // A group is "active" when at least one of its non-zero (activation)
-      // params is currently set to the exp3 value.  Zero-valued params are
-      // "reset" instructions and are excluded from the active check.
-      const isActive = resolved.group.parameters.some((p) => {
-        if (p.value === 0)
-          return false
-        const entry = expressions.value.get(p.parameterId)
-        return entry && entry.currentValue === p.value
-      })
+      const isActive = activeExpressionGroups.value.has(resolved.group.name)
       const states: ExpressionState[] = []
       for (const param of resolved.group.parameters) {
         const entry = expressions.value.get(param.parameterId)
@@ -305,6 +333,7 @@ export const useExpressionStore = defineStore('live2d-expressions', () => {
           states.push(toState(entry))
         }
       }
+      setActiveExpressionGroup(resolved.group.name, !isActive, duration)
       return { success: true, state: states }
     }
 
@@ -330,6 +359,7 @@ export const useExpressionStore = defineStore('live2d-expressions', () => {
     }
 
     savePersistedDefaults(modelId.value, defaults)
+    activeExpressionGroups.value = new Set()
     return { success: true }
   }
 
@@ -338,6 +368,7 @@ export const useExpressionStore = defineStore('live2d-expressions', () => {
    */
   function resetAll(): ExpressionToolResult {
     clearAllTimers()
+    activeExpressionGroups.value = new Set()
     const states: ExpressionState[] = []
     for (const entry of expressions.value.values()) {
       entry.currentValue = entry.modelDefault
@@ -353,6 +384,7 @@ export const useExpressionStore = defineStore('live2d-expressions', () => {
     clearAllTimers()
     expressions.value = new Map()
     expressionGroups.value = new Map()
+    activeExpressionGroups.value = new Set()
     llmMode.value = 'none'
     llmExposed.value = new Map()
     modelId.value = ''
@@ -403,6 +435,7 @@ export const useExpressionStore = defineStore('live2d-expressions', () => {
     expressions,
     modelId,
     expressionGroups,
+    activeExpressionGroups,
     llmMode,
     llmExposed,
 

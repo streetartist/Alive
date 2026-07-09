@@ -6,7 +6,10 @@ import type {
 } from '@proj-airi/stage-shared/godot-stage'
 
 import type { DisplayModel } from '../../../../stores/display-models'
-import type { ModelSettingsRuntimeSnapshot } from './runtime'
+import type {
+  ModelSettingsLive2DExpressionLlmMode,
+  ModelSettingsRuntimeSnapshot,
+} from './runtime'
 
 import { Button, Callout } from '@proj-airi/ui'
 import { storeToRefs } from 'pinia'
@@ -36,6 +39,11 @@ interface ModelSettingsPanelProps {
 interface ModelSettingsPanelEmits {
   extractColorsFromModel: []
   patchGodotViewState: [patch: StageViewPatch]
+  live2dExpressionToggle: [name: string]
+  live2dExpressionSaveDefaults: []
+  live2dExpressionResetAll: []
+  live2dExpressionLlmModeChange: [mode: ModelSettingsLive2DExpressionLlmMode]
+  live2dExpressionLlmExposedChange: [payload: { name: string, value: boolean }]
 }
 
 const props = withDefaults(defineProps<ModelSettingsPanelProps>(), {
@@ -102,6 +110,11 @@ async function handleModelPick(selectedModel: DisplayModel | undefined) {
       :palette="palette"
       :runtime-snapshot="runtimeSnapshot"
       @extract-colors-from-model="emit('extractColorsFromModel')"
+      @live2d-expression-toggle="emit('live2dExpressionToggle', $event)"
+      @live2d-expression-save-defaults="emit('live2dExpressionSaveDefaults')"
+      @live2d-expression-reset-all="emit('live2dExpressionResetAll')"
+      @live2d-expression-llm-mode-change="emit('live2dExpressionLlmModeChange', $event)"
+      @live2d-expression-llm-exposed-change="emit('live2dExpressionLlmExposedChange', $event)"
     />
     <VRM
       v-if="effectiveRenderer === 'vrm'"

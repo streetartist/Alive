@@ -4,16 +4,69 @@ import type { StageModelRenderer } from '../../../../stores/settings/stage-model
 
 export type ModelSettingsRuntimeRenderer = 'disabled' | 'live2d' | 'vrm' | 'spine' | 'godot'
 export type ModelSettingsRuntimePhase = 'pending' | 'loading' | 'binding' | 'mounted' | 'no-model' | 'error'
+export type ModelSettingsLive2DExpressionLlmMode = 'all' | 'none' | 'custom'
 
-export interface ModelSettingsRuntimeSnapshot {
-  ownerInstanceId: string
-  renderer: ModelSettingsRuntimeRenderer
-  phase: ModelSettingsRuntimePhase
-  controlsLocked: boolean
-  previewAvailable: boolean
-  canCapturePreview: boolean
-  lastError?: string
+/** Serializable view of one Live2D expression parameter inside a settings runtime snapshot. */
+export interface ModelSettingsLive2DExpressionParameterSnapshot {
+  /** Live2D parameter ID controlled by the expression. */
+  parameterId: string
+  /** Exp3 target value used by this expression group. */
+  value: number
+}
+
+/** Serializable view of one named Live2D expression group for settings UI rendering. */
+export interface ModelSettingsLive2DExpressionGroupSnapshot {
+  /** Expression name declared by `FileReferences.Expressions[].Name`. */
+  name: string
+  /** Whether the runtime currently considers this expression group active. */
+  active: boolean
+  /** Whether this expression group is exposed to LLM tools in custom mode. */
+  exposedToLlm: boolean
+  /** Parameters that make up this expression group. */
+  parameters: ModelSettingsLive2DExpressionParameterSnapshot[]
+}
+
+/** Live2D expression state mirrored from the renderer that owns the loaded model. */
+export interface ModelSettingsLive2DExpressionSnapshot {
+  /** Named expression groups available on the current model. */
+  groups: ModelSettingsLive2DExpressionGroupSnapshot[]
+  /** Runtime LLM exposure mode for expression tools. */
+  llmMode: ModelSettingsLive2DExpressionLlmMode
+  /** Per-expression exposure flags used when `llmMode` is `custom`. */
+  llmExposed: Record<string, boolean>
+  /** Snapshot timestamp; `0` means no expression runtime has reported yet. */
   updatedAt: number
+}
+
+/** Current model runtime state shared with model settings panels. */
+export interface ModelSettingsRuntimeSnapshot {
+  /** Renderer instance that owns this snapshot. */
+  ownerInstanceId: string
+  /** Runtime renderer currently driving the model. */
+  renderer: ModelSettingsRuntimeRenderer
+  /** Model load/bind lifecycle phase. */
+  phase: ModelSettingsRuntimePhase
+  /** Whether settings controls should avoid mutating the current model. */
+  controlsLocked: boolean
+  /** Whether a model preview/runtime surface exists. */
+  previewAvailable: boolean
+  /** Whether the owner can capture a preview frame. */
+  canCapturePreview: boolean
+  /** Live2D expression state mirrored from the model-owning renderer. */
+  live2dExpressions: ModelSettingsLive2DExpressionSnapshot
+  /** Last runtime error, if any. */
+  lastError?: string
+  /** Snapshot timestamp in epoch milliseconds. */
+  updatedAt: number
+}
+
+export function createEmptyLive2DExpressionSnapshot(): ModelSettingsLive2DExpressionSnapshot {
+  return {
+    groups: [],
+    llmMode: 'none',
+    llmExposed: {},
+    updatedAt: 0,
+  }
 }
 
 export function createEmptyModelSettingsRuntimeSnapshot(
@@ -26,6 +79,7 @@ export function createEmptyModelSettingsRuntimeSnapshot(
     controlsLocked: false,
     previewAvailable: false,
     canCapturePreview: false,
+    live2dExpressions: createEmptyLive2DExpressionSnapshot(),
     updatedAt: 0,
     ...overrides,
   }

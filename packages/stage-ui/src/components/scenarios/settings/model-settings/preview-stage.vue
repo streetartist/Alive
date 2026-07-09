@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ModelSettingsRuntimeSnapshot } from './runtime'
 
-import { Live2DScene } from '@proj-airi/stage-ui-live2d'
+import { Live2DScene, useExpressionStore } from '@proj-airi/stage-ui-live2d'
 import { SpineScene } from '@proj-airi/stage-ui-spine'
 import { ThreeScene, useModelStore } from '@proj-airi/stage-ui-three'
 import { useMouse } from '@vueuse/core'
@@ -9,6 +9,7 @@ import { storeToRefs } from 'pinia'
 import { computed, ref, watch } from 'vue'
 
 import { useSettings } from '../../../../stores/settings'
+import { createLive2DExpressionSnapshot } from './live2d-expression-snapshot'
 import {
   createEmptyModelSettingsRuntimeSnapshot,
   resolveComponentStateToRuntimePhase,
@@ -25,6 +26,7 @@ const emit = defineEmits<{
 }>()
 
 const settingsStore = useSettings()
+const expressionStore = useExpressionStore()
 const modelStore = useModelStore()
 const live2dSceneRef = ref<{ canvasElement: () => HTMLCanvasElement | undefined }>()
 const vrmSceneRef = ref<{ canvasElement: () => HTMLCanvasElement | undefined }>()
@@ -49,10 +51,24 @@ const {
   spineRenderScale,
 } = storeToRefs(settingsStore)
 const { sceneMutationLocked, scenePhase } = storeToRefs(modelStore)
+const {
+  expressions,
+  expressionGroups,
+  activeExpressionGroups,
+  llmExposed,
+  llmMode,
+} = storeToRefs(expressionStore)
 
 const live2dSceneClassList = computed(() => normalizeClassList(props.live2dSceneClass))
 const vrmSceneClassList = computed(() => normalizeClassList(props.vrmSceneClass))
 const spineSceneClassList = computed(() => normalizeClassList(props.spineSceneClass))
+const live2dExpressionSnapshot = computed(() => createLive2DExpressionSnapshot({
+  groups: expressionGroups.value.values(),
+  expressions: expressions.value,
+  activeExpressionGroups: activeExpressionGroups.value,
+  llmMode: llmMode.value,
+  llmExposed: llmExposed.value,
+}))
 
 function normalizeClassList(value?: string | string[]) {
   if (!value)
@@ -96,6 +112,7 @@ const runtimeSnapshot = computed<ModelSettingsRuntimeSnapshot>(() => {
       controlsLocked: hasModel ? phase !== 'mounted' : false,
       previewAvailable: hasModel,
       canCapturePreview: !!live2dSceneRef.value?.canvasElement(),
+      live2dExpressions: live2dExpressionSnapshot.value,
       updatedAt: Date.now(),
     })
   }

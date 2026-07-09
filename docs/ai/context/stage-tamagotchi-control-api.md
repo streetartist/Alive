@@ -202,6 +202,37 @@ interface ControlApiSpeechSynthesizeResponse {
 
 `POST /v1/speech/synthesize` 只返回音频数据，不负责播放。聊天回复是否自动播报由 AIRI renderer 的语音设置和聊天流程决定。
 
+### Live2D expressions
+
+```ts
+type ControlApiExpressionBlendMode = 'Add' | 'Multiply' | 'Overwrite'
+type ControlApiExpressionLlmMode = 'all' | 'none' | 'custom'
+
+interface ControlApiExpressionSnapshot {
+  modelId: string
+  groups: Array<{
+    name: string
+    active: boolean
+    exposedToLlm: boolean
+    parameters: Array<{
+      parameterId: string
+      blend: ControlApiExpressionBlendMode
+      value: number
+    }>
+  }>
+  llmMode: ControlApiExpressionLlmMode
+  llmExposed: Record<string, boolean>
+}
+
+interface ControlApiExpressionSetRequest {
+  name: string
+  value: boolean | number
+  duration?: number
+}
+```
+
+Live2D expression 控制依赖当前主舞台 renderer 已加载 Live2D 模型，并且模型本身有 expression 定义。`duration` 单位是秒，省略时保持当前设置直到下次操作或模型重载。
+
 ### MCP
 
 ```ts
@@ -672,6 +703,125 @@ $audio = Invoke-RestMethod `
 [IO.File]::WriteAllBytes("speech.mp3", [Convert]::FromBase64String($audio.audioBase64))
 ```
 
+## Live2D Expressions
+
+### `GET /v1/live2d/expressions`
+
+列出当前 Live2D 模型可用的 expression groups、参数、激活状态和 LLM 暴露设置。
+
+Response shape:
+
+```json
+{
+  "modelId": "KITU_RE23.model3.json",
+  "groups": [
+    {
+      "name": "Frightened",
+      "active": false,
+      "exposedToLlm": true,
+      "parameters": [
+        {
+          "parameterId": "ParamFrightened",
+          "blend": "Add",
+          "value": 1
+        }
+      ]
+    }
+  ],
+  "llmMode": "all",
+  "llmExposed": {}
+}
+```
+
+### `POST /v1/live2d/expressions/set`
+
+设置指定 expression group 或参数值。
+
+Request:
+
+```json
+{
+  "name": "Frightened",
+  "value": true,
+  "duration": 3
+}
+```
+
+Response shape:
+
+```json
+{
+  "ok": true,
+  "result": {
+    "success": true
+  },
+  "expressions": {}
+}
+```
+
+### `POST /v1/live2d/expressions/toggle`
+
+切换指定 expression group 或参数。对于 group，会在模型默认值和 exp3 目标值之间切换。
+
+Request:
+
+```json
+{
+  "name": "Frightened",
+  "duration": 3
+}
+```
+
+PowerShell:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:$($config.port)/v1/live2d/expressions/toggle" `
+  -Headers $headers `
+  -ContentType "application/json" `
+  -Body (@{ name = "Frightened"; duration = 3 } | ConvertTo-Json)
+```
+
+### `POST /v1/live2d/expressions/reset`
+
+重置所有 expression 到模型默认值。
+
+### `POST /v1/live2d/expressions/save-defaults`
+
+把当前 expression 参数值保存为本地默认值。默认值按 `modelId` 存储。
+
+### `POST /v1/live2d/expressions/llm-mode`
+
+设置 expression 是否暴露给 LLM tool。
+
+Request:
+
+```json
+{
+  "mode": "custom"
+}
+```
+
+Allowed `mode`:
+
+- `all`
+- `none`
+- `custom`
+
+### `POST /v1/live2d/expressions/llm-exposed`
+
+设置 custom 模式下某个 expression group 是否暴露给 LLM tool。
+
+Request:
+
+```json
+{
+  "name": "Frightened",
+  "enabled": true
+}
+```
+
 ## MCP
 
 ### `GET /v1/mcp/status`
@@ -1041,6 +1191,13 @@ Request:
 | `POST` | `/v1/providers/{kind}/active` | Yes | 设置 active provider |
 | `GET` | `/v1/providers/models/{providerId}` | Yes | Provider 模型 |
 | `POST` | `/v1/speech/synthesize` | Yes | 语音合成 |
+| `GET` | `/v1/live2d/expressions` | Yes | Live2D expression 快照 |
+| `POST` | `/v1/live2d/expressions/set` | Yes | 设置 expression |
+| `POST` | `/v1/live2d/expressions/toggle` | Yes | 切换 expression |
+| `POST` | `/v1/live2d/expressions/reset` | Yes | 重置 expression |
+| `POST` | `/v1/live2d/expressions/save-defaults` | Yes | 保存 expression 默认值 |
+| `POST` | `/v1/live2d/expressions/llm-mode` | Yes | 设置 expression LLM 暴露模式 |
+| `POST` | `/v1/live2d/expressions/llm-exposed` | Yes | 设置单个 expression 的 LLM 暴露状态 |
 | `GET` | `/v1/mcp/status` | Yes | MCP 状态 |
 | `GET` | `/v1/mcp/tools` | Yes | MCP tools |
 | `POST` | `/v1/mcp/tools/call` | Yes | 调用 MCP tool |
@@ -1098,6 +1255,18 @@ Start-Sleep -Seconds 8
 Invoke-RestMethod "http://127.0.0.1:$($config.port)/v1/chat/messages" -Headers $headers
 ```
 
+确认 Live2D expression 控制正常:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:$($config.port)/v1/live2d/expressions" -Headers $headers
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:$($config.port)/v1/live2d/expressions/toggle" `
+  -Headers $headers `
+  -ContentType "application/json" `
+  -Body (@{ name = "Frightened"; duration = 3 } | ConvertTo-Json)
+```
+
 确认语音合成 provider 已配置:
 
 ```powershell
@@ -1109,6 +1278,7 @@ $status.renderer.providers.active.speech
 
 - `/v1/chat/interrupt` 不能强制取消已经发送给模型 provider 的请求。
 - `/v1/speech/synthesize` 只合成并返回音频，不直接播放。
+- `/v1/live2d/expressions` 依赖主舞台当前 Live2D 模型已加载并解析出 expression。
 - SSE 是运行时事件流，不持久化历史事件。
 - Widget 和 plugin tool payload 取决于当前应用注册的组件和插件。
 - Godot view patch 只接受已定义的 camera 字段。

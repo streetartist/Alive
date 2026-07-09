@@ -30,6 +30,13 @@ import {
   electronControlApiChatSelectSession,
   electronControlApiChatSend,
   electronControlApiChatSpotlight,
+  electronControlApiExpressionList,
+  electronControlApiExpressionResetAll,
+  electronControlApiExpressionSaveDefaults,
+  electronControlApiExpressionSet,
+  electronControlApiExpressionSetLlmExposed,
+  electronControlApiExpressionSetLlmMode,
+  electronControlApiExpressionToggle,
   electronControlApiGetProviderModels,
   electronControlApiGetProviderStatus,
   electronControlApiGetStatus,
@@ -168,6 +175,13 @@ export function setupControlApiServer(options: ControlApiServerOptions): ServerM
   const invokeSetActiveProvider = defineInvoke(rendererContext, electronControlApiSetActiveProvider)
   const invokeGetProviderModels = defineInvoke(rendererContext, electronControlApiGetProviderModels)
   const invokeSpeechSynthesize = defineInvoke(rendererContext, electronControlApiSpeechSynthesize)
+  const invokeExpressionList = defineInvoke(rendererContext, electronControlApiExpressionList)
+  const invokeExpressionSet = defineInvoke(rendererContext, electronControlApiExpressionSet)
+  const invokeExpressionToggle = defineInvoke(rendererContext, electronControlApiExpressionToggle)
+  const invokeExpressionResetAll = defineInvoke(rendererContext, electronControlApiExpressionResetAll)
+  const invokeExpressionSaveDefaults = defineInvoke(rendererContext, electronControlApiExpressionSaveDefaults)
+  const invokeExpressionSetLlmMode = defineInvoke(rendererContext, electronControlApiExpressionSetLlmMode)
+  const invokeExpressionSetLlmExposed = defineInvoke(rendererContext, electronControlApiExpressionSetLlmExposed)
 
   let address: ControlApiServerAddressSnapshot | undefined
 
@@ -191,6 +205,13 @@ export function setupControlApiServer(options: ControlApiServerOptions): ServerM
       setActiveProvider: payload => invokeSetActiveProvider(payload),
       getProviderModels: payload => invokeGetProviderModels(payload),
       speechSynthesize: payload => invokeSpeechSynthesize(payload),
+      expressionList: () => invokeExpressionList(),
+      expressionSet: payload => invokeExpressionSet(payload),
+      expressionToggle: payload => invokeExpressionToggle(payload),
+      expressionResetAll: () => invokeExpressionResetAll(),
+      expressionSaveDefaults: () => invokeExpressionSaveDefaults(),
+      expressionSetLlmMode: payload => invokeExpressionSetLlmMode(payload),
+      expressionSetLlmExposed: payload => invokeExpressionSetLlmExposed(payload),
     },
     windows: {
       openMain: () => showAndFocusWindow(options.mainWindow),
