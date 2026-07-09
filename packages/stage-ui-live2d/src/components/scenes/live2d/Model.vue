@@ -2,6 +2,10 @@
 import type { Application } from '@pixi/app'
 
 import type { PixiLive2DInternalModel } from '../../../composables/live2d'
+import type {
+  Live2DExpressionMetadataSettings,
+  Live2DExpressionReference,
+} from '../../../utils/live2d-expression-metadata'
 
 import { listenBeatSyncBeatSignal } from '@proj-airi/stage-shared/beat-sync'
 import { useTheme } from '@proj-airi/ui'
@@ -28,6 +32,7 @@ import {
 import { useFitModel } from '../../../composables/live2d/fit-model'
 import { Emotion, EmotionNeutralMotionName } from '../../../constants/emotions'
 import { useL2dViewControl, useLive2dParams } from '../../../stores'
+import { expressionReferenceFromMetadata } from '../../../utils/live2d-expression-metadata'
 
 const props = withDefaults(defineProps<{
   modelSrc?: string
@@ -174,6 +179,11 @@ const live2dAutoBlinkEnabled = toRef(() => props.live2dAutoBlinkEnabled)
 const live2dForceAutoBlinkEnabled = toRef(() => props.live2dForceAutoBlinkEnabled)
 const live2dExpressionEnabled = toRef(() => props.live2dExpressionEnabled)
 const live2dShadowEnabled = toRef(() => props.live2dShadowEnabled)
+
+interface Live2DExpressionCapableSettings extends Live2DExpressionMetadataSettings {
+  expressions?: Live2DExpressionReference[]
+  resolveURL?: (filePath: string) => string
+}
 
 // --- Expression controller
 const internalModelRef = ref<PixiLive2DInternalModel>()
@@ -462,19 +472,35 @@ async function initExpressionController(internalModel?: PixiLive2DInternalModel)
   // Dispose any previous state (handles model reloads)
   expressionController.dispose()
 
-  const settings = internalModel?.settings as any
+  const settings = internalModel?.settings as Live2DExpressionCapableSettings | undefined
   if (!settings)
     return
 
-  // model3.json stores expressions as { Name, File }[] under settings.expressions
-  const expressionRefs: { Name: string, File: string }[] = settings.expressions ?? []
+  const declaredExpressionRefs = settings.expressions ?? []
+  const metadataExpressionFiles = settings._expFiles ?? []
+  const expressionRefs = declaredExpressionRefs.length > 0
+    ? declaredExpressionRefs
+    : metadataExpressionFiles.map(expressionReferenceFromMetadata)
+
   if (expressionRefs.length === 0)
     return
+
+  if (declaredExpressionRefs.length === 0) {
+    console.info('[Live2D] Auto-discovered expression files:', expressionRefs.length)
+  }
+
+  const embeddedExpressionTextByFile = new Map(
+    metadataExpressionFiles.map(file => [file.fileName, JSON.stringify(file.data)]),
+  )
 
   // Build a function that can read exp3 files relative to the model root.
   // For URL-loaded models, resolveURL gives us the full URL. For ZIP-loaded
   // models the resolved URL points to an in-memory blob/object URL.
   const readExpFile = async (filePath: string): Promise<string> => {
+    const embeddedExpressionText = embeddedExpressionTextByFile.get(filePath)
+    if (embeddedExpressionText !== undefined)
+      return embeddedExpressionText
+
     const resolvedUrl: string = settings.resolveURL?.(filePath) ?? filePath
     const response = await fetch(resolvedUrl)
     if (!response.ok)

@@ -1,8 +1,15 @@
 import type { JSONObject, ModelSettings } from 'pixi-live2d-display/cubism4'
 
+import type { Live2DExpressionMetadataFile } from './live2d-expression-metadata'
+
 import JSZip from 'jszip'
 
 import { Cubism4ModelSettings, FileLoader, Live2DFactory, ZipLoader } from 'pixi-live2d-display/cubism4'
+
+import {
+  isLive2DExpressionFilePath,
+  parseLive2DExpressionMetadata,
+} from './live2d-expression-metadata'
 
 ZipLoader.zipReader = (data: Blob, _url: string) => JSZip.loadAsync(data)
 
@@ -35,7 +42,7 @@ ZipLoader.createSettings = async (reader: JSZip) => {
   try {
     const metadataSettings = settings as ModelSettings & {
       _cdiData?: unknown
-      _expFiles?: Array<{ name: string, fileName: string, data: unknown }>
+      _expFiles?: Live2DExpressionMetadataFile[]
     }
 
     // Find and parse CDI file
@@ -47,18 +54,8 @@ ZipLoader.createSettings = async (reader: JSZip) => {
     }
 
     // Find and collect expression files
-    const expPaths = filePaths.filter(f => f.toLowerCase().endsWith('.exp3.json'))
-    if (expPaths.length > 0) {
-      const expFiles: Array<{ name: string, fileName: string, data: unknown }> = []
-      for (const expPath of expPaths) {
-        const expText = await reader.file(expPath)!.async('text')
-        const baseName = expPath.split('/').pop()?.replace('.exp3.json', '') || expPath
-        expFiles.push({
-          name: baseName,
-          fileName: expPath,
-          data: JSON.parse(expText),
-        })
-      }
+    const expFiles = await collectZipExpressionFiles(reader, filePaths)
+    if (expFiles.length > 0) {
       metadataSettings._expFiles = expFiles
       console.info('[ZipLoader] Extracted', expFiles.length, 'expression files')
     }
@@ -198,6 +195,10 @@ FileLoader.createSettings = async (files: File[]) => {
   const settingsText = await FileLoader.readText(settingsFile)
   const settings = createModelSettings(settingsText, settingsUrl)
   Object.assign(settings, { _objectURL: URL.createObjectURL(settingsFile) })
+  const expFiles = await collectFileExpressionFiles(files)
+  if (expFiles.length > 0) {
+    Object.assign(settings, { _expFiles: expFiles })
+  }
 
   return settings
 }
@@ -231,3 +232,38 @@ ZipLoader.getFiles = (jsZip: JSZip, paths: string[]) =>
       return new File([blob], fileName)
     },
   ))
+
+async function collectZipExpressionFiles(reader: JSZip, filePaths: string[]): Promise<Live2DExpressionMetadataFile[]> {
+  const expFiles: Live2DExpressionMetadataFile[] = []
+
+  for (const expPath of filePaths.filter(isLive2DExpressionFilePath)) {
+    try {
+      const expText = await reader.file(expPath)!.async('text')
+      expFiles.push(parseLive2DExpressionMetadata(expPath, expText))
+    }
+    catch (error) {
+      console.warn('[ZipLoader] Failed to parse expression file:', expPath, error)
+    }
+  }
+
+  return expFiles
+}
+
+async function collectFileExpressionFiles(files: File[]): Promise<Live2DExpressionMetadataFile[]> {
+  const expFiles: Live2DExpressionMetadataFile[] = []
+
+  for (const file of files) {
+    const filePath = file.webkitRelativePath || file.name
+    if (!isLive2DExpressionFilePath(filePath))
+      continue
+
+    try {
+      expFiles.push(parseLive2DExpressionMetadata(filePath, await FileLoader.readText(file)))
+    }
+    catch (error) {
+      console.warn('[FileLoader] Failed to parse expression file:', filePath, error)
+    }
+  }
+
+  return expFiles
+}

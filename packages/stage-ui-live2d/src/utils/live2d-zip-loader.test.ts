@@ -47,6 +47,29 @@ function createShisihangshiSettingsText(): string {
   })
 }
 
+function createExpressionText(parameterId = 'ParamHappy'): string {
+  return JSON.stringify({
+    Type: 'Live2D Expression',
+    Parameters: [
+      { Id: parameterId, Value: 1, Blend: 'Add' },
+    ],
+  })
+}
+
+interface TestExpressionMetadataFile {
+  name: string
+  fileName: string
+  data: Record<string, unknown>
+}
+
+interface TestExpressionMetadataSettings {
+  _expFiles?: TestExpressionMetadataFile[]
+}
+
+function expressionMetadata(settings: unknown): TestExpressionMetadataFile[] {
+  return (settings as TestExpressionMetadataSettings)._expFiles ?? []
+}
+
 const appleDoubleHeader = new Uint8Array([0, 5, 22, 7, 0, 2, 0, 0, 77, 97, 99, 32, 79, 83, 32, 88])
 
 describe('live2d zip loader settings sanitization', () => {
@@ -102,6 +125,34 @@ describe('live2d zip loader settings sanitization', () => {
     expect(settings.url).toBe('302301_shisihangshi/302301_shisihangshi.model3.json')
     expect(settings.physics).toBeUndefined()
     expect(filePaths).not.toContain('__MACOSX/302301_shisihangshi/._302301_shisihangshi.model3.json')
+  })
+
+  it('extracts undeclared exp3 files from zip models for expression auto-discovery', async () => {
+    await import('./live2d-zip-loader')
+    const { ZipLoader } = await import('pixi-live2d-display/cubism4')
+
+    const zip = new JSZip()
+    zip.file('IceGirl/IceGirl.model3.json', createShisihangshiSettingsText())
+    zip.file('IceGirl/IceGirl.moc3', new Uint8Array([77, 79, 67, 51]))
+    zip.file('IceGirl/textures/texture_00.png', new Uint8Array([1, 2, 3]))
+    zip.file('IceGirl/脸红.exp3.json', createExpressionText('ParamBlush'))
+
+    const zipBytes = await zip.generateAsync({ type: 'uint8array' })
+    const reader = await JSZip.loadAsync(await blobFromBytes(zipBytes).arrayBuffer())
+    const settings = await ZipLoader.createSettings(reader)
+
+    expect(expressionMetadata(settings)).toMatchObject([
+      {
+        name: '脸红',
+        fileName: 'IceGirl/脸红.exp3.json',
+        data: {
+          Type: 'Live2D Expression',
+          Parameters: [
+            { Id: 'ParamBlush', Value: 1, Blend: 'Add' },
+          ],
+        },
+      },
+    ])
   })
 
   it('loads an OPFS-restored file directory when model3.json contains Physics: null', async () => {
@@ -173,5 +224,48 @@ describe('live2d zip loader settings sanitization', () => {
 
     expect(settings.url).toBe('302301_shisihangshi/302301_shisihangshi.model3.json')
     expect(settings.physics).toBeUndefined()
+  })
+
+  it('extracts undeclared exp3 files from OPFS-restored file directories for expression auto-discovery', async () => {
+    await import('./live2d-zip-loader')
+    const { FileLoader } = await import('pixi-live2d-display/cubism4')
+
+    const files = [
+      fileWithRelativePath(
+        createShisihangshiSettingsText(),
+        'IceGirl.model3.json',
+        'IceGirl/IceGirl.model3.json',
+      ),
+      fileWithRelativePath(
+        new Uint8Array([77, 79, 67, 51]),
+        'IceGirl.moc3',
+        'IceGirl/IceGirl.moc3',
+      ),
+      fileWithRelativePath(
+        new Uint8Array([1, 2, 3]),
+        'texture_00.png',
+        'IceGirl/textures/texture_00.png',
+      ),
+      fileWithRelativePath(
+        createExpressionText('ParamTear'),
+        '流泪.exp3.json',
+        'IceGirl/流泪.exp3.json',
+      ),
+    ]
+
+    const settings = await FileLoader.createSettings(files)
+
+    expect(expressionMetadata(settings)).toMatchObject([
+      {
+        name: '流泪',
+        fileName: 'IceGirl/流泪.exp3.json',
+        data: {
+          Type: 'Live2D Expression',
+          Parameters: [
+            { Id: 'ParamTear', Value: 1, Blend: 'Add' },
+          ],
+        },
+      },
+    ])
   })
 })
