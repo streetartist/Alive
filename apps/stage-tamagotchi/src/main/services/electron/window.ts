@@ -16,8 +16,40 @@ import {
 } from '../../../shared/eventa'
 import { onAppBeforeQuit, onAppWindowAllClosed } from '../../libs/bootkit/lifecycle'
 import { resizeWindowByDelta } from '../../windows/shared/window'
+import { createStageAlwaysOnTopController } from './window-topmost'
 
 export function createWindowService(params: { context: ReturnType<typeof createContext>['context'], window: BrowserWindow }) {
+  const alwaysOnTopController = createStageAlwaysOnTopController({
+    moveTop: () => params.window.moveTop(),
+    off: (event, listener) => {
+      if (event === 'focus') {
+        params.window.off('focus', listener)
+        return
+      }
+
+      if (event === 'restore') {
+        params.window.off('restore', listener)
+        return
+      }
+
+      params.window.off('show', listener)
+    },
+    on: (event, listener) => {
+      if (event === 'focus') {
+        params.window.on('focus', listener)
+        return
+      }
+
+      if (event === 'restore') {
+        params.window.on('restore', listener)
+        return
+      }
+
+      params.window.on('show', listener)
+    },
+    setAlwaysOnTop: (flag, level, relativeLevel) => params.window.setAlwaysOnTop(flag, level, relativeLevel),
+  })
+
   function getWindowLifecycleState(reason: ElectronWindowLifecycleState['reason']): ElectronWindowLifecycleState {
     return {
       focused: params.window.isFocused(),
@@ -40,7 +72,10 @@ export function createWindowService(params: { context: ReturnType<typeof createC
   })
 
   onAppWindowAllClosed(() => stop())
-  onAppBeforeQuit(() => stop())
+  onAppBeforeQuit(() => {
+    stop()
+    alwaysOnTopController.dispose()
+  })
   defineInvokeHandler(params.context, startLoopGetBounds, () => start())
   defineInvokeHandler(params.context, electronGetWindowLifecycleState, (_, options) => {
     if (params.window.webContents.id === options?.raw.ipcMainEvent.sender.id)
@@ -76,17 +111,13 @@ export function createWindowService(params: { context: ReturnType<typeof createC
   defineInvokeHandler(params.context, electron.window.setIgnoreMouseEvents, (opts, options) => {
     if (opts && params.window.webContents.id === options?.raw.ipcMainEvent.sender.id) {
       params.window.setIgnoreMouseEvents(...opts)
+      alwaysOnTopController.reassert()
     }
   })
 
   defineInvokeHandler(params.context, electronWindowSetAlwaysOnTop, (flag, options) => {
     if (params.window.webContents.id === options?.raw.ipcMainEvent.sender.id) {
-      if (flag) {
-        params.window.setAlwaysOnTop(true, 'screen-saver', 1)
-      }
-      else {
-        params.window.setAlwaysOnTop(false)
-      }
+      alwaysOnTopController.setEnabled(flag)
     }
   })
 
@@ -120,4 +151,6 @@ export function createWindowService(params: { context: ReturnType<typeof createC
       safeClose(params.window)
     }
   })
+
+  params.window.on('closed', () => alwaysOnTopController.dispose())
 }

@@ -107,6 +107,7 @@ const focusAt = toRef(() => props.focusAt)
 const model = ref<Live2DModel<PixiLive2DInternalModel>>()
 const initialModelWidth = ref<number>(0)
 const initialModelHeight = ref<number>(0)
+const modelFitStageSize = shallowRef<{ width: number, height: number }>()
 const mouthOpenSize = computed(() => Math.max(0, Math.min(100, props.mouthOpenSize)))
 const nowSpeaking = toRef(() => props.nowSpeaking)
 const lastUpdateTime = ref(0)
@@ -124,6 +125,7 @@ let resizeAnimation: ReturnType<typeof animate> | undefined
 const modelNormalizeParams = useFitModel(
   () => ({ width: stageSize.value.width, height: stageSize.value.height }),
   () => ({ width: initialModelWidth.value, height: initialModelHeight.value }),
+  () => modelFitStageSize.value ?? { width: stageSize.value.width, height: stageSize.value.height },
 )
 
 watch([offset, scale, modelNormalizeParams], () => {
@@ -326,6 +328,10 @@ async function loadModel() {
     pixiApp.value!.stage.addChild(model.value)
     initialModelWidth.value = model.value.width
     initialModelHeight.value = model.value.height
+    // Keep model scale tied to the stage size at load time. Resizing the
+    // transparent desktop window should move the stage coordinate system, not
+    // visually grow or shrink the character.
+    modelFitStageSize.value = { width: stageSize.value.width, height: stageSize.value.height }
     model.value.anchor.set(0.5, 0.5)
     setScaleAndPosition()
 
