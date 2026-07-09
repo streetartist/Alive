@@ -30,6 +30,7 @@ import type {
 import { defineEventa, defineInvokeEventa } from '@moeru/eventa'
 
 export * from './control-api'
+export * from './desktop-control'
 export const electronStartTrackMousePosition = defineInvokeEventa('eventa:invoke:electron:start-tracking-mouse-position')
 export const electronStartDraggingWindow = defineInvokeEventa('eventa:invoke:electron:start-dragging-window')
 
