@@ -23,6 +23,7 @@ import { useLlmToolsetPromptsStore } from './llm-toolset-prompts'
 import { useAiriCardStore } from './modules/airi-card'
 import { useAutonomousArtistryStore } from './modules/artistry-autonomous'
 import { useConsciousnessStore } from './modules/consciousness'
+import { useMemoryStore } from './modules/memory'
 
 interface ForkOptions {
   fromSessionId?: string
@@ -71,6 +72,7 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
   const chatStream = useChatStreamStore()
   const chatContext = useChatContextStore()
   const cardStore = useAiriCardStore()
+  const memoryStore = useMemoryStore()
   const contextObservability = useContextObservabilityStore()
   const { activeSessionId } = storeToRefs(chatSession)
   const { streamingMessage } = storeToRefs(chatStream)
@@ -177,6 +179,25 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
     getActiveSessionId: () => activeSessionId.value,
     getActiveProvider: () => activeProvider.value,
     getSystemPromptSupplement: () => llmToolsetPromptsStore.activeToolsetPrompt,
+    memory: {
+      id: memoryStore.backendId,
+      recall: input => memoryStore.recall(input),
+      rememberTurn: input => memoryStore.rememberTurn(input),
+    },
+    getMemoryScope: (sessionId) => {
+      const meta = chatSession.sessionMetas[sessionId]
+      if (!meta)
+        return undefined
+
+      return {
+        ownerId: meta.userId,
+        characterId: meta.characterId,
+      }
+    },
+    getMemoryOptions: () => ({
+      recallLimit: memoryStore.recallLimit,
+      promptCharacterLimit: memoryStore.promptCharacterBudget,
+    }),
     runtimeContextProviders: [
       createMinecraftContext,
     ],

@@ -418,8 +418,71 @@ pages:
     upload: Upload
     upload_desc: Click or drag an AIRI card package to import
   memory:
-    description: Where memories got stored, and organized
     title: Memory
+    description: Review and manage what AIRI remembers for the active character
+    status:
+      enabled: Memory is on
+      enabledDescription: AIRI can save and recall durable memories for the active character
+      disabled: Memory is paused
+      disabledDescription: Existing memories remain available to review or delete, but AIRI will not save or recall them
+    scope:
+      title: Character-scoped memory
+      description: Memories are isolated by account and active character
+      activeCharacter: 'Active character: {characterId}'
+    controls:
+      title: Memory controls
+      description: Choose whether AIRI remembers conversations and how much recalled context reaches a reply
+      enabled:
+        label: Enable durable memory
+        description: Allow AIRI to save completed conversations and recall relevant details later
+      recallLimit:
+        label: Maximum memories per reply
+        description: Limits how many relevant records can be considered for one response
+        value: '{count} memories'
+      promptCharacterBudget:
+        label: Recalled context budget
+        description: Caps the number of memory characters added to a model prompt
+        value: '{count} characters'
+      refresh: Refresh memories
+      clear: Forget all memories
+      clearConfirm: Yes, forget all
+      clearCancel: Keep memories
+    records:
+      title: Remembered details
+      description: Review the contextual evidence AIRI may recall for this character
+      count: '{count} stored memories'
+      loading: Loading memories…
+      empty:
+        title: No memories yet
+        description: Relevant details from completed conversations will appear here when durable memory is enabled
+      error:
+        title: Memories could not be loaded
+        description: Check the memory backend and try again
+        retry: Try again
+      kind:
+        episodic: Episode
+        semantic: Fact
+        seed: Character seed
+      source:
+        chat-turn: Conversation
+        character-book: Character card
+      created: Created
+      updated: Updated
+      lastAccessed: Last recalled
+      neverAccessed: Never recalled
+      recallCount: Recalls
+      accessCount: '{count} successful recalls'
+      forget: Forget
+      forgetConfirm: Yes, forget it
+      forgetCancel: Keep it
+      ariaLabel: '{kind} memory created {date}'
+    feedback:
+      forgotten: Memory forgotten
+      cleared: All memories for this character were forgotten
+    errors:
+      load: Failed to load memories
+      forget: Failed to forget this memory
+      clear: Failed to clear memories
   data:
     title: Data
     description: Manage stored AIRI data, exports, and resets
@@ -697,12 +760,6 @@ pages:
             verbose-json-unsupported: >-
               Your provider did not return verbose_json segments. Confidence
               filtering had no effect on the last transcription.
-    memory-long-term:
-      description: Long-term memory specific settings and management
-      title: Long-Term Memory
-    memory-short-term:
-      description: Short-term memory specific settings and management
-      title: Short-Term Memory
     messaging-discord:
       description: Chat & voice chat over Discord
       title: Discord
