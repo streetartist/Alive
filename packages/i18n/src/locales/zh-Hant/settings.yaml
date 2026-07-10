@@ -399,8 +399,71 @@ pages:
     upload: 上傳
     upload_desc: 點擊或拖曳 AIRI 角色卡包到此處匯入
   memory:
-    description: 存放記憶的地方，以及策略
-    title: 記憶體
+    title: 記憶
+    description: 查看並管理 AIRI 對目前角色的長期記憶
+    status:
+      enabled: 記憶已開啟
+      enabledDescription: AIRI 可以為目前角色儲存並回想長期資訊
+      disabled: 記憶已暫停
+      disabledDescription: 現有記憶仍可查看或刪除，但 AIRI 不會繼續儲存或回想它們
+    scope:
+      title: 角色專屬記憶
+      description: 記憶按帳戶和目前角色相互隔離
+      activeCharacter: '目前角色：{characterId}'
+    controls:
+      title: 記憶設定
+      description: 設定 AIRI 是否記住對話，以及每次回答可使用多少回想內容
+      enabled:
+        label: 開啟長期記憶
+        description: 允許 AIRI 儲存已完成的對話，並在之後回想相關細節
+      recallLimit:
+        label: 每次回答的最大記憶數
+        description: 限制一次回答最多參考多少筆相關記憶
+        value: '{count} 筆記憶'
+      promptCharacterBudget:
+        label: 回想內容字元上限
+        description: 限制加入模型提示詞中的記憶字元數
+        value: '{count} 個字元'
+      refresh: 重新整理記憶
+      clear: 忘記全部記憶
+      clearConfirm: 是，全部忘記
+      clearCancel: 保留記憶
+    records:
+      title: 已記住的內容
+      description: 查看 AIRI 可能為此角色回想的上下文資訊
+      count: '已儲存 {count} 筆記憶'
+      loading: 正在載入記憶…
+      empty:
+        title: 尚無記憶
+        description: 開啟長期記憶後，已完成對話中的相關細節會顯示在這裡
+      error:
+        title: 無法載入記憶
+        description: 請檢查記憶服務後再試一次
+        retry: 重試
+      kind:
+        episodic: 經歷
+        semantic: 事實
+        seed: 角色初始資訊
+      source:
+        chat-turn: 對話
+        character-book: 角色卡
+      created: 建立時間
+      updated: 更新時間
+      lastAccessed: 最近回想
+      neverAccessed: 從未回想
+      recallCount: 回想次數
+      accessCount: '成功回想 {count} 次'
+      forget: 忘記
+      forgetConfirm: 是，忘記它
+      forgetCancel: 保留它
+      ariaLabel: '{date}建立的{kind}記憶'
+    feedback:
+      forgotten: 已忘記此記憶
+      cleared: 已忘記此角色的全部記憶
+    errors:
+      load: 載入記憶失敗
+      forget: 無法忘記此記憶
+      clear: 無法清除記憶
   data:
     title: 資料
     description: 管理已儲存的 AIRI 資料、匯出與重置作業
@@ -664,12 +727,6 @@ pages:
               Note: If your provider does not support verbose_json responses, this setting will have no effect.
             verbose-json-unsupported: >-
               Your provider did not return verbose_json segments. Confidence filtering had no effect on the last transcription.
-    memory-long-term:
-      description: 長期記憶
-      title: 長期記憶
-    memory-short-term:
-      description: 短期記憶
-      title: 短期記憶
     messaging-discord:
       description: Discord 訊息與語音聊天
       title: Discord

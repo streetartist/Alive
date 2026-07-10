@@ -1,3 +1,4 @@
+import type { MemoryBackend, MemoryScope } from '@proj-airi/memory'
 import type { ChatProvider } from '@xsai-ext/providers/utils'
 import type { CommonContentPart, Message, ToolMessage } from '@xsai/shared-chat'
 
@@ -10,11 +11,18 @@ import { createQueue } from '@proj-airi/stream-kit'
 
 import { formatContextPromptText } from '../messages/context-prompt'
 import { formatTimePrefix } from '../messages/datetime-prefix'
+import { formatMemoryContextText } from '../messages/memory-context'
+import { errorMessageFromValue } from '../utils/error-message'
 import { createChatHooks } from './agent-hooks'
 import { useLlmmarkerParser } from './llm-marker-parser'
 import { categorizeResponse, createStreamingCategorizer } from './response-categoriser'
 
 const STREAMING_UI_FLUSH_CHUNK_SIZE = 24
+
+const DEFAULT_CHAT_MEMORY_OPTIONS = {
+  recallLimit: 5,
+  promptCharacterLimit: 4000,
+} as const
 
 function prependTextToContent<T extends { content?: unknown }>(msg: T, text: string): T {
   const content = msg.content
@@ -42,6 +50,31 @@ function cloneStreamingMessage(message: StreamingAssistantMessage): StreamingAss
   catch {
     return JSON.parse(JSON.stringify(message)) as StreamingAssistantMessage
   }
+}
+
+function appendTextPartToLatestUserMessage(messages: Message[], text: string) {
+  const lastMessage = messages.at(-1)
+  if (!lastMessage || lastMessage.role !== 'user')
+    return false
+
+  const existingParts = typeof lastMessage.content === 'string'
+    ? [{ type: 'text' as const, text: lastMessage.content }]
+    : lastMessage.content
+
+  lastMessage.content = [
+    ...existingParts,
+    { type: 'text' as const, text },
+  ]
+
+  return true
+}
+
+function normalizeMemoryLimit(value: number | undefined, fallback: number) {
+  if (value === undefined)
+    return fallback
+  if (!Number.isFinite(value))
+    return fallback
+  return Math.max(0, Math.floor(value))
 }
 
 /**
@@ -115,11 +148,11 @@ export interface ChatOrchestratorLLMPort {
 }
 
 /**
- * Lifecycle record emitted around prompt composition.
+ * Lifecycle record emitted around prompt composition and optional memory work.
  */
 export interface ChatOrchestratorLifecycleRecord {
   /** Composition phase being observed. */
-  phase: 'before-compose' | 'prompt-context-built' | 'after-compose'
+  phase: 'before-compose' | 'memory-recall' | 'prompt-context-built' | 'after-compose' | 'memory-remember'
   /** Logical event channel for context observability. */
   channel: 'chat'
   /** Session associated with this send. */
@@ -128,6 +161,21 @@ export interface ChatOrchestratorLifecycleRecord {
   textPreview?: string
   /** Phase-specific payload for devtools and diagnostics. */
   details?: unknown
+}
+
+/**
+ * Memory operations consumed by chat orchestration without exposing management APIs.
+ */
+export type ChatOrchestratorMemoryPort = Pick<MemoryBackend, 'id' | 'recall' | 'rememberTurn'>
+
+/**
+ * Per-send bounds applied to memory retrieval and prompt rendering.
+ */
+export interface ChatOrchestratorMemoryOptions {
+  /** Maximum best-first records admitted from a backend response. @default 5 */
+  recallLimit?: number
+  /** Hard character budget for the complete rendered memory block. @default 4000 */
+  promptCharacterLimit?: number
 }
 
 /**
@@ -176,6 +224,12 @@ export interface ChatOrchestratorRuntimeDeps {
   getSystemPromptSupplement?: () => string | undefined
   /** Runtime context providers ingested immediately before prompt composition. */
   runtimeContextProviders?: Array<() => ContextMessage | null | undefined>
+  /** Optional durable memory boundary used for scoped recall and completed-turn ingestion. */
+  memory?: ChatOrchestratorMemoryPort
+  /** Resolves the durable owner and character for the session being processed. */
+  getMemoryScope?: (sessionId: string) => MemoryScope | undefined
+  /** Returns dynamic recall and prompt bounds for the current send. */
+  getMemoryOptions?: () => ChatOrchestratorMemoryOptions | undefined
   /** Clock used for persisted message timestamps. @default Date.now */
   now?: () => number
   /** Monotonic clock used for elapsed telemetry in milliseconds. @default performance.now */
@@ -501,6 +555,65 @@ export function createChatOrchestratorRuntime(deps: ChatOrchestratorRuntimeDeps)
         sessionMessages: sessionMessagesForSend,
       })
 
+      let memoryScope: MemoryScope | undefined
+      let memoryContextText = ''
+      if (deps.memory && deps.getMemoryScope) {
+        try {
+          memoryScope = deps.getMemoryScope(sessionId)
+          if (memoryScope) {
+            const memoryOptions = deps.getMemoryOptions?.()
+            const recallLimit = normalizeMemoryLimit(
+              memoryOptions?.recallLimit,
+              DEFAULT_CHAT_MEMORY_OPTIONS.recallLimit,
+            )
+            const promptCharacterLimit = normalizeMemoryLimit(
+              memoryOptions?.promptCharacterLimit,
+              DEFAULT_CHAT_MEMORY_OPTIONS.promptCharacterLimit,
+            )
+
+            if (recallLimit > 0 && promptCharacterLimit > 0) {
+              const matches = await deps.memory.recall({
+                scope: memoryScope,
+                sessionId,
+                query: sendingMessage,
+                limit: recallLimit,
+                excludeSourceMessageIds: sessionMessagesForSend
+                  .map(message => message.id)
+                  .filter((id): id is string => !!id),
+              })
+              const admittedMatches = matches.slice(0, recallLimit)
+              memoryContextText = formatMemoryContextText(admittedMatches, {
+                maxCharacters: promptCharacterLimit,
+              })
+
+              deps.onLifecycle?.({
+                phase: 'memory-recall',
+                channel: 'chat',
+                sessionId,
+                details: {
+                  backendId: deps.memory.id,
+                  status: 'done',
+                  matchCount: admittedMatches.length,
+                  promptCharacterCount: memoryContextText.length,
+                },
+              })
+            }
+          }
+        }
+        catch (error) {
+          deps.onLifecycle?.({
+            phase: 'memory-recall',
+            channel: 'chat',
+            sessionId,
+            details: {
+              backendId: deps.memory.id,
+              status: 'failed',
+              error: errorMessageFromValue(error),
+            },
+          })
+        }
+      }
+
       const categorizer = createStreamingCategorizer(deps.getActiveProvider())
       let streamPosition = 0
 
@@ -589,19 +702,12 @@ export function createChatOrchestratorRuntime(deps: ChatOrchestratorRuntimeDeps)
       }
 
       const contextsSnapshot = deps.context.snapshot()
+      if (memoryContextText)
+        appendTextPartToLatestUserMessage(newMessages as Message[], `\n${memoryContextText}`)
+
       const contextPromptText = formatContextPromptText(contextsSnapshot)
       if (contextPromptText) {
-        const lastMessage = newMessages.at(-1)
-        if (lastMessage && lastMessage.role === 'user') {
-          const existingParts = typeof lastMessage.content === 'string'
-            ? [{ type: 'text' as const, text: lastMessage.content }]
-            : lastMessage.content
-
-          lastMessage.content = [
-            ...existingParts,
-            { type: 'text' as const, text: `\n${contextPromptText}` },
-          ]
-        }
+        appendTextPartToLatestUserMessage(newMessages as Message[], `\n${contextPromptText}`)
 
         deps.onLifecycle?.({
           phase: 'prompt-context-built',
@@ -722,14 +828,65 @@ export function createChatOrchestratorRuntime(deps: ChatOrchestratorRuntimeDeps)
         latencyMs: Math.round(monotonicNow() - llmRequestStartedAt),
       })
 
+      let persistedAssistant: StreamingAssistantMessage | undefined
       if (!isStaleGeneration() && buildingMessage.slices.length > 0) {
         const finalAssistant = buildingMessage
         deps.session.appendSessionMessage(sessionId, finalAssistant)
+        persistedAssistant = finalAssistant
         deps.onAssistantMessageAppended?.({
           sessionId,
           message: finalAssistant,
           messageText: fullText,
         })
+      }
+
+      if (deps.memory && memoryScope && persistedAssistant?.id && userMessage.id) {
+        try {
+          await deps.memory.rememberTurn({
+            idempotencyKey: JSON.stringify([
+              'chat-turn',
+              sessionId,
+              userMessage.id,
+              persistedAssistant.id,
+            ]),
+            scope: memoryScope,
+            sessionId,
+            user: {
+              id: userMessage.id,
+              text: sendingMessage,
+              createdAt: userMessage.createdAt,
+            },
+            assistant: {
+              id: persistedAssistant.id,
+              text: typeof persistedAssistant.content === 'string'
+                ? persistedAssistant.content
+                : fullText,
+              createdAt: persistedAssistant.createdAt ?? now(),
+            },
+          })
+
+          deps.onLifecycle?.({
+            phase: 'memory-remember',
+            channel: 'chat',
+            sessionId,
+            details: {
+              backendId: deps.memory.id,
+              status: 'done',
+            },
+          })
+        }
+        catch (error) {
+          deps.onLifecycle?.({
+            phase: 'memory-remember',
+            channel: 'chat',
+            sessionId,
+            details: {
+              backendId: deps.memory.id,
+              status: 'failed',
+              error: errorMessageFromValue(error),
+            },
+          })
+        }
       }
 
       await hooks.emitStreamEndHooks(streamingMessageContext)
@@ -745,7 +902,7 @@ export function createChatOrchestratorRuntime(deps: ChatOrchestratorRuntimeDeps)
 
       deps.onAssistantTurnReady?.({
         messageText: fullText,
-        sessionMessages: sessionMessagesForSend,
+        sessionMessages: deps.session.getSessionMessages(sessionId),
       })
 
       resetForegroundStream(sessionId)

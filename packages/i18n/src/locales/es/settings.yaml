@@ -399,8 +399,71 @@ pages:
     upload: Subir
     upload_desc: Haz clic o arrastra un paquete de tarjeta AIRI para importar
   memory:
-    description: Donde se almacenan y organizan las memorias
     title: Memoria
+    description: Revisa y gestiona lo que AIRI recuerda para el personaje activo
+    status:
+      enabled: Memoria activada
+      enabledDescription: AIRI puede guardar y recuperar recuerdos duraderos para el personaje activo
+      disabled: Memoria en pausa
+      disabledDescription: Los recuerdos existentes se pueden revisar o eliminar, pero AIRI no guardará ni recuperará otros
+    scope:
+      title: Memoria por personaje
+      description: Los recuerdos se aíslan por cuenta y personaje activo
+      activeCharacter: 'Personaje activo: {characterId}'
+    controls:
+      title: Controles de memoria
+      description: Decide si AIRI recuerda conversaciones y cuánto contexto recuperado llega a una respuesta
+      enabled:
+        label: Activar memoria duradera
+        description: Permite que AIRI guarde conversaciones terminadas y recupere detalles relevantes después
+      recallLimit:
+        label: Recuerdos máximos por respuesta
+        description: Limita cuántos registros relevantes pueden considerarse para una respuesta
+        value: '{count} recuerdos'
+      promptCharacterBudget:
+        label: Presupuesto de contexto recuperado
+        description: Limita los caracteres de memoria añadidos al prompt del modelo
+        value: '{count} caracteres'
+      refresh: Actualizar recuerdos
+      clear: Olvidar todos los recuerdos
+      clearConfirm: Sí, olvidar todo
+      clearCancel: Conservar recuerdos
+    records:
+      title: Detalles recordados
+      description: Revisa la evidencia contextual que AIRI puede recuperar para este personaje
+      count: '{count} recuerdos guardados'
+      loading: Cargando recuerdos…
+      empty:
+        title: Aún no hay recuerdos
+        description: Los detalles relevantes de conversaciones terminadas aparecerán aquí cuando la memoria duradera esté activada
+      error:
+        title: No se pudieron cargar los recuerdos
+        description: Comprueba el servicio de memoria y vuelve a intentarlo
+        retry: Reintentar
+      kind:
+        episodic: Episodio
+        semantic: Dato
+        seed: Dato inicial del personaje
+      source:
+        chat-turn: Conversación
+        character-book: Tarjeta de personaje
+      created: Creado
+      updated: Actualizado
+      lastAccessed: Última recuperación
+      neverAccessed: Nunca recuperado
+      recallCount: Recuperaciones
+      accessCount: '{count} recuperaciones correctas'
+      forget: Olvidar
+      forgetConfirm: Sí, olvidarlo
+      forgetCancel: Conservarlo
+      ariaLabel: 'Recuerdo de tipo {kind} creado el {date}'
+    feedback:
+      forgotten: Recuerdo olvidado
+      cleared: Se olvidaron todos los recuerdos de este personaje
+    errors:
+      load: No se pudieron cargar los recuerdos
+      forget: No se pudo olvidar este recuerdo
+      clear: No se pudieron borrar los recuerdos
   data:
     title: Datos
     description: Administrar, exportar y restablecer los datos de AIRI
@@ -664,12 +727,6 @@ pages:
               Note: If your provider does not support verbose_json responses, this setting will have no effect.
             verbose-json-unsupported: >-
               Your provider did not return verbose_json segments. Confidence filtering had no effect on the last transcription.
-    memory-long-term:
-      description: Configuraciones específicas y gestión de memoria a largo plazo
-      title: Memoria a Largo Plazo
-    memory-short-term:
-      description: Configuraciones específicas y gestión de memoria a corto plazo
-      title: Memoria a Corto Plazo
     messaging-discord:
       description: Chat y chat de voz por Discord
       title: Discord

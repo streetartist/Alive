@@ -3299,6 +3299,9 @@ importers:
       '@moeru/std':
         specifier: 'catalog:'
         version: 0.1.0-beta.17
+      '@proj-airi/memory':
+        specifier: workspace:^
+        version: link:../memory
       '@proj-airi/pipelines-audio':
         specifier: workspace:^
         version: link:../pipelines-audio
@@ -3472,6 +3475,15 @@ importers:
       unplugin-yaml:
         specifier: 'catalog:'
         version: 4.1.0(@nuxt/kit@3.20.2(magicast@0.5.2))(esbuild@0.27.2)(rolldown@1.0.0-rc.16)(rollup@4.60.1)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.27.2)(jiti@2.6.1)(less@4.6.4)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/memory:
+    devDependencies:
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.21.9(@arethetypeswrong/core@0.18.2)(oxc-resolver@11.19.1(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2))(publint@0.3.18)(synckit@0.11.12)(typescript@5.9.3)(unplugin-unused@0.5.7)(vue-tsc@3.2.6(typescript@5.9.3))
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
 
   packages/memory-pgvector:
     dependencies:
@@ -3849,6 +3861,9 @@ importers:
       '@proj-airi/i18n':
         specifier: workspace:*
         version: link:../i18n
+      '@proj-airi/memory':
+        specifier: workspace:*
+        version: link:../memory
       '@proj-airi/server-sdk':
         specifier: workspace:*
         version: link:../server-sdk
@@ -4043,9 +4058,6 @@ importers:
       '@proj-airi/core-character':
         specifier: workspace:^
         version: link:../core-character
-      '@proj-airi/drizzle-duckdb-wasm':
-        specifier: 'catalog:'
-        version: 0.5.0(drizzle-orm@0.45.2(@electric-sql/pglite@0.4.4)(@opentelemetry/api@1.9.1)(@prisma/client@5.22.0)(@types/pg@8.20.0)(better-sqlite3@12.5.0)(kysely@0.28.14)(pg@8.20.0)(postgres@3.4.9))
       '@proj-airi/font-chillroundm':
         specifier: workspace:^
         version: link:../font-chillroundm
@@ -4058,6 +4070,9 @@ importers:
       '@proj-airi/i18n':
         specifier: workspace:^
         version: link:../i18n
+      '@proj-airi/memory':
+        specifier: workspace:^
+        version: link:../memory
       '@proj-airi/model-driver-lipsync':
         specifier: workspace:^
         version: link:../model-driver-lipsync
@@ -4106,15 +4121,9 @@ importers:
       '@xsai-ext/providers':
         specifier: 'catalog:'
         version: 0.5.0-beta.2
-      '@xsai-transformers/embed':
-        specifier: 'catalog:'
-        version: 0.1.0(electron@41.2.1)(h3@2.0.1-rc.20(crossws@0.4.5(srvx@0.11.15)))
       '@xsai-transformers/shared':
         specifier: 'catalog:'
         version: 0.1.0(electron@41.2.1)(h3@2.0.1-rc.20(crossws@0.4.5(srvx@0.11.15)))
-      '@xsai/embed':
-        specifier: 'catalog:'
-        version: 0.5.0-beta.2
       '@xsai/generate-speech':
         specifier: 'catalog:'
         version: 0.5.0-beta.2

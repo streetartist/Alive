@@ -399,8 +399,71 @@ pages:
     upload: 上传
     upload_desc: 点击或拖拽 AIRI 角色卡包到此处导入
   memory:
-    description: 存放记忆的地方，以及策略
-    title: 记忆体
+    title: 记忆
+    description: 查看并管理 AIRI 对当前角色的长期记忆
+    status:
+      enabled: 记忆已开启
+      enabledDescription: AIRI 可以为当前角色保存并回忆长期信息
+      disabled: 记忆已暂停
+      disabledDescription: 现有记忆仍可查看或删除，但 AIRI 不会继续保存或回忆它们
+    scope:
+      title: 角色专属记忆
+      description: 记忆按账户和当前角色相互隔离
+      activeCharacter: '当前角色：{characterId}'
+    controls:
+      title: 记忆设置
+      description: 设置 AIRI 是否记住对话，以及每次回答可使用多少回忆内容
+      enabled:
+        label: 开启长期记忆
+        description: 允许 AIRI 保存已完成的对话，并在之后回忆相关细节
+      recallLimit:
+        label: 每次回答的最大记忆数
+        description: 限制一次回答最多参考多少条相关记忆
+        value: '{count} 条记忆'
+      promptCharacterBudget:
+        label: 回忆内容字符上限
+        description: 限制添加到模型提示词中的记忆字符数
+        value: '{count} 个字符'
+      refresh: 刷新记忆
+      clear: 忘记全部记忆
+      clearConfirm: 是，全部忘记
+      clearCancel: 保留记忆
+    records:
+      title: 已记住的内容
+      description: 查看 AIRI 可能为此角色回忆的上下文信息
+      count: '已保存 {count} 条记忆'
+      loading: 正在加载记忆…
+      empty:
+        title: 暂无记忆
+        description: 开启长期记忆后，已完成对话中的相关细节会显示在这里
+      error:
+        title: 无法加载记忆
+        description: 请检查记忆服务后重试
+        retry: 重试
+      kind:
+        episodic: 经历
+        semantic: 事实
+        seed: 角色初始信息
+      source:
+        chat-turn: 对话
+        character-book: 角色卡
+      created: 创建时间
+      updated: 更新时间
+      lastAccessed: 最近回忆
+      neverAccessed: 从未回忆
+      recallCount: 回忆次数
+      accessCount: '成功回忆 {count} 次'
+      forget: 忘记
+      forgetConfirm: 是，忘记它
+      forgetCancel: 保留它
+      ariaLabel: '{date}创建的{kind}记忆'
+    feedback:
+      forgotten: 已忘记此记忆
+      cleared: 已忘记此角色的全部记忆
+    errors:
+      load: 加载记忆失败
+      forget: 无法忘记此记忆
+      clear: 无法清除记忆
   data:
     title: Data
     description: 管理存储 AIRI 数据、导出和重置
@@ -664,12 +727,6 @@ pages:
               注意：如果您的提供商不支持 verbose_json 结果处理，此设置将不会有任何效果。
             verbose-json-unsupported: >-
               如果您的提供商没有返回 verbose_json 结果。置信度阈值将不会影响转录。
-    memory-long-term:
-      description: 长期记忆
-      title: 长期记忆
-    memory-short-term:
-      description: 短期记忆
-      title: 短期记忆
     messaging-discord:
       description: Discord 发消息和语音聊天
       title: Discord
