@@ -9,6 +9,7 @@ import type {
   WidgetsUpdatePayload,
 } from '../../../../shared/eventa'
 import type {
+  ControlApiAttachmentPayload,
   ControlApiChatCleanupRequest,
   ControlApiChatCreateSessionRequest,
   ControlApiChatDeleteMessageRequest,
@@ -25,6 +26,7 @@ import type {
   ControlApiProviderModelsRequest,
   ControlApiProviderSetActiveRequest,
   ControlApiSpeechSynthesizeRequest,
+  ControlApiToolsetId,
 } from '../../../../shared/eventa/control-api'
 import type { ControlApiEventBus } from './event-bus'
 
@@ -32,6 +34,7 @@ import { Buffer } from 'node:buffer'
 import { timingSafeEqual } from 'node:crypto'
 
 import { errorMessageFrom } from '@moeru/std'
+import { parseStageViewPatchPayload } from '@proj-airi/stage-shared/godot-stage'
 import { eventHandler, getRequestURL, H3 } from 'h3'
 
 import { createControlApiSseStream } from './event-bus'
@@ -144,6 +147,7 @@ const baseSecurityHeaders = {
   'X-Content-Type-Options': 'nosniff',
 }
 const providerKinds = new Set(['chat', 'speech', 'transcription', 'vision'])
+const controlApiToolsets = new Set<ControlApiToolsetId>(['widgets', 'artistry'])
 
 class ControlApiHttpError extends Error {
   constructor(
@@ -399,6 +403,63 @@ function optionalStringRecord(record: Record<string, unknown>, key: string): Rec
   return result
 }
 
+function assertOnlyFields(record: Record<string, unknown>, allowedFields: readonly string[]) {
+  const allowed = new Set(allowedFields)
+  const unsupported = Object.keys(record).find(key => !allowed.has(key))
+  if (unsupported) {
+    throw new ControlApiHttpError(400, 'FIELD_INVALID', `Unsupported field "${unsupported}".`)
+  }
+}
+
+function optionalChatToolset(record: Record<string, unknown>, key: string): ControlApiToolsetId | undefined {
+  const value = record[key]
+  if (value === undefined)
+    return undefined
+  if (typeof value !== 'string' || !controlApiToolsets.has(value as ControlApiToolsetId)) {
+    throw new ControlApiHttpError(400, 'FIELD_INVALID', 'Field "toolset" must be "widgets" or "artistry".')
+  }
+  return value as ControlApiToolsetId
+}
+
+function optionalChatAttachments(record: Record<string, unknown>, key: string): ControlApiAttachmentPayload[] | undefined {
+  const value = record[key]
+  if (value === undefined)
+    return undefined
+  if (!Array.isArray(value)) {
+    throw new ControlApiHttpError(400, 'FIELD_INVALID', 'Field "attachments" must be an array.')
+  }
+
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new ControlApiHttpError(400, 'FIELD_INVALID', `Field "attachments[${index}]" must be an object.`)
+    }
+
+    const attachment = item as Record<string, unknown>
+    const type = requireString(attachment, 'type')
+    if (type !== 'image') {
+      throw new ControlApiHttpError(400, 'FIELD_INVALID', `Field "attachments[${index}].type" must be "image".`)
+    }
+
+    const data = requireString(attachment, 'data')
+    const mimeType = requireString(attachment, 'mimeType')
+    if (!mimeType.startsWith('image/')) {
+      throw new ControlApiHttpError(400, 'FIELD_INVALID', `Field "attachments[${index}].mimeType" must be an image MIME type.`)
+    }
+
+    return { type, data, mimeType }
+  })
+}
+
+function readChatSendPayload(record: Record<string, unknown>): ControlApiChatSendRequest {
+  assertOnlyFields(record, ['text', 'attachments', 'sessionId', 'toolset'])
+  return {
+    text: requireString(record, 'text'),
+    attachments: optionalChatAttachments(record, 'attachments'),
+    sessionId: optionalString(record, 'sessionId'),
+    toolset: optionalChatToolset(record, 'toolset'),
+  }
+}
+
 function requireProviderKind(value: string): ControlApiProviderSetActiveRequest['kind'] {
   if (!providerKinds.has(value))
     throw new ControlApiHttpError(400, 'PROVIDER_KIND_INVALID', 'Provider kind must be chat, speech, transcription, or vision.')
@@ -484,6 +545,19 @@ function readWidgetsUpdatePayload(record: Record<string, unknown>, id: string): 
     size: optionalWidgetSize(record, 'size'),
     windowSize: optionalRecord(record, 'windowSize'),
     ttlMs: optionalNumber(record, 'ttlMs'),
+  }
+}
+
+function readStageViewPatchPayload(record: Record<string, unknown>): StageViewPatch {
+  try {
+    return parseStageViewPatchPayload(record)
+  }
+  catch (error) {
+    throw new ControlApiHttpError(
+      400,
+      'FIELD_INVALID',
+      errorMessageFrom(error) ?? 'Godot stage view patch must contain at least one valid camera field.',
+    )
   }
 }
 
@@ -576,11 +650,7 @@ export function createControlApiApp(options: ControlApiRouteOptions) {
   }))
 
   app.post('/v1/chat/send', route(options, async (event) => {
-    const body = await readJsonRecord(event)
-    const payload = {
-      ...body,
-      text: requireString(body, 'text'),
-    } as ControlApiChatSendRequest
+    const payload = readChatSendPayload(await readJsonRecord(event))
     await options.renderer.chatSend(payload)
     publishOperation(options, 'chat.send', { sessionId: payload.sessionId })
     return { ok: true }
@@ -621,10 +691,16 @@ export function createControlApiApp(options: ControlApiRouteOptions) {
 
   app.delete('/v1/chat/messages', route(options, async (event) => {
     const body = await readJsonRecord(event)
+    const messageId = optionalString(body, 'messageId')
+    const index = optionalNumber(body, 'index')
+    if (messageId === undefined && index === undefined) {
+      throw new ControlApiHttpError(400, 'FIELD_REQUIRED', 'Field "messageId" or "index" is required.')
+    }
+
     const payload = {
       sessionId: optionalString(body, 'sessionId'),
-      messageId: optionalString(body, 'messageId'),
-      index: optionalNumber(body, 'index'),
+      messageId,
+      index,
     }
     await options.renderer.chatDeleteMessage(payload)
     publishOperation(options, 'chat.message.delete', payload)
@@ -670,8 +746,9 @@ export function createControlApiApp(options: ControlApiRouteOptions) {
     if (first === 'models' && second)
       return await options.renderer.getProviderModels({ providerId: second })
     if (first && second === 'active') {
+      const kind = requireProviderKind(first)
       const status = await options.renderer.getProviderStatus() as { active?: Record<string, unknown> }
-      return status.active?.[first] ?? null
+      return status.active?.[kind] ?? null
     }
     throw new ControlApiHttpError(404, 'NOT_FOUND', 'Provider route not found.')
   }))
@@ -895,8 +972,8 @@ export function createControlApiApp(options: ControlApiRouteOptions) {
   }))
   app.get('/v1/stage/godot/view', route(options, () => options.godot.getViewSnapshot()))
   app.patch('/v1/stage/godot/view', route(options, async (event) => {
-    const body = await readJsonRecord(event)
-    const result = await options.godot.applyViewPatch(body as StageViewPatch)
+    const payload = readStageViewPatchPayload(await readJsonRecord(event))
+    const result = await options.godot.applyViewPatch(payload)
     publishOperation(options, 'godot.view.patch')
     return result
   }))
