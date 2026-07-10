@@ -25,7 +25,6 @@
     "./stores": "./src/stores/index.ts",
     "./stores/model-parameters": "./src/stores/model-parameters.ts",
     "./stores/expression-store": "./src/stores/expression-store.ts",
-    "./tools/expression-tools": "./src/tools/expression-tools.ts",
     "./utils/eye-motions": "./src/utils/eye-motions.ts",
     "./utils/live2d-preview": "./src/utils/live2d-preview.ts",
     "./utils/live2d-zip-loader": "./src/utils/live2d-zip-loader.ts",
@@ -53,7 +52,6 @@
     "@proj-airi/stage-shared": "workspace:^",
     "@proj-airi/ui": "workspace:^",
     "@vueuse/core": "catalog:",
-    "@xsai/tool": "catalog:",
     "animejs": "catalog:",
     "culori": "catalog:",
     "es-toolkit": "catalog:",
@@ -62,8 +60,7 @@
     "pixi-filters": "catalog:",
     "pixi-live2d-display": "catalog:",
     "three": "catalog:",
-    "vue": "catalog:",
-    "zod": "catalog:"
+    "vue": "catalog:"
   },
   "devDependencies": {
     "@types/culori": "catalog:",

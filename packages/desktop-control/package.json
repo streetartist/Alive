@@ -1,0 +1,60 @@
+{
+  "name": "@proj-airi/desktop-control",
+  "type": "module",
+  "version": "0.11.0",
+  "private": true,
+  "description": "Cross-platform desktop input control for AIRI (nut.js-based, secondary development)",
+  "author": {
+    "name": "Moeru AI Project AIRI Team",
+    "email": "airi@moeru.ai",
+    "url": "https://github.com/moeru-ai"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/moeru-ai/airi.git",
+    "directory": "packages/desktop-control"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
+    },
+    "./coordinates": {
+      "types": "./dist/coordinates.d.mts",
+      "import": "./dist/coordinates.mjs",
+      "default": "./dist/coordinates.mjs"
+    },
+    "./normalize": {
+      "types": "./dist/normalize.d.mts",
+      "import": "./dist/normalize.mjs",
+      "default": "./dist/normalize.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "scripts": {
+    "dev": "pnpm run build",
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "@moeru/std": "catalog:",
+    "@nut-tree-fork/nut-js": "4.2.6"
+  },
+  "devDependencies": {
+    "tsdown": "catalog:",
+    "vitest": "catalog:vitest"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "linux",
+    "darwin",
+    "win32"
+  ]
+}

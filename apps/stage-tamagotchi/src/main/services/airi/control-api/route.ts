@@ -23,6 +23,10 @@ import type {
   ControlApiExpressionLlmModeRequest,
   ControlApiExpressionSetRequest,
   ControlApiExpressionToggleRequest,
+  ControlApiLive2DMotionPlayRequest,
+  ControlApiLive2DViewControl,
+  ControlApiLive2DViewResetRequest,
+  ControlApiLive2DViewSetRequest,
   ControlApiProviderModelsRequest,
   ControlApiProviderSetActiveRequest,
   ControlApiSpeechSynthesizeRequest,
@@ -68,6 +72,11 @@ export interface ControlApiRendererClient {
   expressionSaveDefaults: () => Promise<unknown>
   expressionSetLlmMode: (payload: ControlApiExpressionLlmModeRequest) => Promise<unknown>
   expressionSetLlmExposed: (payload: ControlApiExpressionLlmExposedRequest) => Promise<unknown>
+  live2dViewGet: () => Promise<unknown>
+  live2dViewSet: (payload: ControlApiLive2DViewSetRequest) => Promise<unknown>
+  live2dViewReset: (payload: ControlApiLive2DViewResetRequest) => Promise<unknown>
+  live2dMotionList: () => Promise<unknown>
+  live2dMotionPlay: (payload: ControlApiLive2DMotionPlayRequest) => Promise<unknown>
 }
 
 export interface ControlApiWindowControllers {
@@ -148,6 +157,7 @@ const baseSecurityHeaders = {
 }
 const providerKinds = new Set(['chat', 'speech', 'transcription', 'vision'])
 const controlApiToolsets = new Set<ControlApiToolsetId>(['widgets', 'artistry'])
+const live2dViewControls = new Set<ControlApiLive2DViewControl>(['x', 'y', 'scale'])
 
 class ControlApiHttpError extends Error {
   constructor(
@@ -485,6 +495,50 @@ function requireExpressionLlmMode(value: string): ControlApiExpressionLlmModeReq
   return value
 }
 
+function readLive2DViewSetPayload(record: Record<string, unknown>): ControlApiLive2DViewSetRequest {
+  assertOnlyFields(record, ['x', 'y', 'scale'])
+
+  const payload = {
+    x: optionalNumber(record, 'x'),
+    y: optionalNumber(record, 'y'),
+    scale: optionalNumber(record, 'scale'),
+  }
+
+  if (payload.x === undefined && payload.y === undefined && payload.scale === undefined) {
+    throw new ControlApiHttpError(400, 'FIELD_REQUIRED', 'At least one of "x", "y", or "scale" is required.')
+  }
+
+  return payload
+}
+
+function readLive2DViewResetPayload(record: Record<string, unknown>): ControlApiLive2DViewResetRequest {
+  assertOnlyFields(record, ['controls'])
+
+  const controls = optionalStringArray(record, 'controls')
+  if (!controls)
+    return {}
+
+  const invalid = controls.find(control => !live2dViewControls.has(control as ControlApiLive2DViewControl))
+  if (invalid) {
+    throw new ControlApiHttpError(400, 'FIELD_INVALID', 'Field "controls" must contain only "x", "y", or "scale".')
+  }
+
+  return { controls: controls as ControlApiLive2DViewControl[] }
+}
+
+function readLive2DMotionPlayPayload(record: Record<string, unknown>): ControlApiLive2DMotionPlayRequest {
+  assertOnlyFields(record, ['group', 'index'])
+  const index = optionalNumber(record, 'index')
+  if (index !== undefined && (!Number.isInteger(index) || index < 0)) {
+    throw new ControlApiHttpError(400, 'FIELD_INVALID', 'Field "index" must be a non-negative integer.')
+  }
+
+  return {
+    group: requireString(record, 'group'),
+    index,
+  }
+}
+
 function optionalWidgetSize(record: Record<string, unknown>, key: string): WidgetsAddPayload['size'] | undefined {
   const value = record[key]
   if (value === undefined)
@@ -591,6 +645,8 @@ function capabilities() {
       providers: ['list', 'setActive', 'models'],
       speech: ['synthesize'],
       live2dExpressions: ['list', 'set', 'toggle', 'reset', 'saveDefaults', 'llmMode', 'llmExposed'],
+      live2dView: ['get', 'set', 'reset'],
+      live2dMotions: ['list', 'play'],
       mcp: ['status', 'tools', 'callTool', 'config', 'restart', 'testServer'],
       widgets: ['list', 'open', 'hide', 'add', 'update', 'remove', 'clear', 'event'],
       godotStage: ['status', 'start', 'stop', 'viewSnapshot', 'viewPatch', 'requestViewSnapshot'],
@@ -837,6 +893,31 @@ export function createControlApiApp(options: ControlApiRouteOptions) {
     }
     const result = await options.renderer.expressionSetLlmExposed(payload)
     publishOperation(options, 'live2d.expression.llm-exposed.set', payload)
+    return result
+  }))
+
+  app.get('/v1/live2d/view', route(options, () => options.renderer.live2dViewGet()))
+
+  app.post('/v1/live2d/view/set', route(options, async (event) => {
+    const payload = readLive2DViewSetPayload(await readJsonRecord(event))
+    const result = await options.renderer.live2dViewSet(payload)
+    publishOperation(options, 'live2d.view.set', payload)
+    return result
+  }))
+
+  app.post('/v1/live2d/view/reset', route(options, async (event) => {
+    const payload = readLive2DViewResetPayload(await readJsonRecord(event))
+    const result = await options.renderer.live2dViewReset(payload)
+    publishOperation(options, 'live2d.view.reset', payload)
+    return result
+  }))
+
+  app.get('/v1/live2d/motions', route(options, () => options.renderer.live2dMotionList()))
+
+  app.post('/v1/live2d/motions/play', route(options, async (event) => {
+    const payload = readLive2DMotionPlayPayload(await readJsonRecord(event))
+    const result = await options.renderer.live2dMotionPlay(payload)
+    publishOperation(options, 'live2d.motion.play', payload)
     return result
   }))
 

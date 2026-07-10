@@ -192,6 +192,43 @@ export interface ControlApiExpressionOperationResponse {
   expressions: ControlApiExpressionSnapshot
 }
 
+export type ControlApiLive2DViewControl = 'x' | 'y' | 'scale'
+
+export interface ControlApiLive2DViewSnapshot {
+  position: {
+    x: number
+    y: number
+  }
+  scale: number
+}
+
+export interface ControlApiLive2DViewSetRequest {
+  x?: number
+  y?: number
+  scale?: number
+}
+
+export interface ControlApiLive2DViewResetRequest {
+  controls?: ControlApiLive2DViewControl[]
+}
+
+export interface ControlApiLive2DMotionSnapshot {
+  current: {
+    group: string
+    index?: number
+  }
+  available: Array<{
+    motionName: string
+    motionIndex: number
+    fileName: string
+  }>
+}
+
+export interface ControlApiLive2DMotionPlayRequest {
+  group: string
+  index?: number
+}
+
 export interface ControlApiRuntimeStatus {
   ready: boolean
   route: string
@@ -225,3 +262,8 @@ export const electronControlApiExpressionResetAll = defineInvokeEventa<ControlAp
 export const electronControlApiExpressionSaveDefaults = defineInvokeEventa<ControlApiExpressionOperationResponse>('eventa:invoke:electron:control-api:expressions:save-defaults')
 export const electronControlApiExpressionSetLlmMode = defineInvokeEventa<ControlApiExpressionOperationResponse, ControlApiExpressionLlmModeRequest>('eventa:invoke:electron:control-api:expressions:llm-mode:set')
 export const electronControlApiExpressionSetLlmExposed = defineInvokeEventa<ControlApiExpressionOperationResponse, ControlApiExpressionLlmExposedRequest>('eventa:invoke:electron:control-api:expressions:llm-exposed:set')
+export const electronControlApiLive2DViewGet = defineInvokeEventa<ControlApiLive2DViewSnapshot>('eventa:invoke:electron:control-api:live2d:view:get')
+export const electronControlApiLive2DViewSet = defineInvokeEventa<ControlApiLive2DViewSnapshot, ControlApiLive2DViewSetRequest>('eventa:invoke:electron:control-api:live2d:view:set')
+export const electronControlApiLive2DViewReset = defineInvokeEventa<ControlApiLive2DViewSnapshot, ControlApiLive2DViewResetRequest>('eventa:invoke:electron:control-api:live2d:view:reset')
+export const electronControlApiLive2DMotionList = defineInvokeEventa<ControlApiLive2DMotionSnapshot>('eventa:invoke:electron:control-api:live2d:motions:list')
+export const electronControlApiLive2DMotionPlay = defineInvokeEventa<ControlApiLive2DMotionSnapshot, ControlApiLive2DMotionPlayRequest>('eventa:invoke:electron:control-api:live2d:motions:play')

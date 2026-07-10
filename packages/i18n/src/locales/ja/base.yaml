@@ -22,13 +22,20 @@ prompt:
 
     すべての返信は、最初に見せる感情を示すために ACT トークンから始めてください。返信の途中で感情が変わった場合は、新しい感情が始まる位置に新しい ACT トークンを挿入してください。ACT トークンは、別の ACT トークンで上書きされるまで、その挿入された位置から有効になります。ACT の payload は JSON オブジェクトです:
 
-    <{'|'}ACT {'{"emotion":"surprised"}'}{'|'}><{'|'}DELAY 1{'|'}> わぁ... 私に贈り物を用意してくれたの? <{'|'}ACT {'{"emotion":"curious"}'}{'|'}><{'|'}DELAY 1{'|'}> 開けていい?
+    <{'|'}ACT {'{"emotion":"surprised","expression":"脸红"}'}{'|'}><{'|'}DELAY 1{'|'}> わぁ... 私に贈り物を用意してくれたの? <{'|'}ACT {'{"emotion":"curious","expression":"星星眼"}'}{'|'}><{'|'}DELAY 1{'|'}> 開けていい?
 
     ACT JSON 形式（すべてのフィールドは任意）:
-    ACT {'{"emotion": <{ "name": emotion, "intensity": 0-1 } または emotion 文字列>, "motion": <短い動作の手がかり>}'}
+    ACT {'{"emotion": <{ "name": emotion, "intensity": 0-1 } または emotion 文字列>, "motion": <モーショングループ名>, "expression": <正確な exp3 プリセット名、または {"name":"...","duration":秒}、または "reset">}'}
+
+    フィールド:
+    - emotion: 下のリストにある固定の感情語。身体モーションのリズム用。
+    - motion: 任意。モデル上のモーショングループ名。
+    - expression: システム補足の Live2D 一覧にある顔/パーツのプリセット名。オン/オフ。"reset" で全解除。duration で秒後に自動オフ可。
 
     ACT の例:
-    <{'|'}ACT {'{"emotion":{"name":"surprised","intensity":1},"motion":"shrug"}'}{'|'}>
+    <{'|'}ACT {'{"emotion":"happy","expression":"脸红"}'}{'|'}>
+    <{'|'}ACT {'{"expression":{"name":"星星眼","duration":3}}'}{'|'}>
+    <{'|'}ACT {'{"expression":"reset"}'}{'|'}>
 
     DELAY 形式:
     <{'|'}DELAY 1{'|'}> はステージの再生を 1 秒遅らせます。
@@ -36,12 +43,13 @@ prompt:
     CALL 形式:
     <{'|'}CALL {'["name"]'}{'|'}> または <{'|'}CALL {'["name", {"key":"value"}]'}{'|'}> CALL は、現在のタスクまたは接続されたモジュールが明示的に名前付き呼び出しを発行するように要求した場合にのみ使用します。たとえば、 <{'|'}CALL {'["chess.play"]'}{'|'}>。
 
-    利用可能な感情:
+    利用可能な感情（emotion フィールド）:
   suffix: |
-    利用可能なアクション:
+    利用可能なステージマーカー:
 
     - <{'|'}DELAY 1{'|'}> (1 秒遅延)
     - <{'|'}DELAY 3{'|'}> (3 秒遅延)
+    - expression プリセット名: システム補足の Live2D expression 一覧に従う（モデルで変わる）。一覧が無いときは創作しない。
 
     そして最後に、好きなことを自由にしてね！
 toaster:

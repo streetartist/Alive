@@ -81,6 +81,26 @@ describe('createControlApiApp', () => {
           result: { success: true, payload },
           expressions: { modelId: 'KITU_RE23.model3.json', groups: [], llmMode: 'custom', llmExposed: { [payload.name]: payload.enabled } },
         })),
+        live2dViewGet: vi.fn(async () => ({
+          position: { x: 0, y: 0 },
+          scale: 1,
+        })),
+        live2dViewSet: vi.fn(async payload => ({
+          position: { x: payload.x ?? 0, y: payload.y ?? 0 },
+          scale: payload.scale ?? 1,
+        })),
+        live2dViewReset: vi.fn(async () => ({
+          position: { x: 0, y: 0 },
+          scale: 1,
+        })),
+        live2dMotionList: vi.fn(async () => ({
+          current: { group: 'Idle', index: 0 },
+          available: [{ motionName: 'Idle', motionIndex: 0, fileName: 'idle.motion3.json' }],
+        })),
+        live2dMotionPlay: vi.fn(async payload => ({
+          current: { group: payload.group, index: payload.index },
+          available: [{ motionName: 'Idle', motionIndex: 0, fileName: 'idle.motion3.json' }],
+        })),
       },
       windows: {
         openMain: vi.fn(async () => undefined),
@@ -344,6 +364,104 @@ describe('createControlApiApp', () => {
 
     expect(response.status).toBe(400)
     expect(options.renderer.expressionSet).not.toHaveBeenCalled()
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: 'FIELD_INVALID',
+      },
+    })
+  })
+
+  it('forwards Live2D view set requests and publishes operation events', async () => {
+    const options = createOptions()
+    const operations: unknown[] = []
+    options.events.subscribe((event) => {
+      if (event.type === 'operation')
+        operations.push(event.payload)
+    })
+    await listen(options)
+
+    const response = await fetch(`${baseUrl}/v1/live2d/view/set`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ x: 12.5, y: -8, scale: 1.2 }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(options.renderer.live2dViewSet).toHaveBeenCalledWith({ x: 12.5, y: -8, scale: 1.2 })
+    expect(operations).toContainEqual({ operation: 'live2d.view.set', payload: { x: 12.5, y: -8, scale: 1.2 } })
+    expect(await response.json()).toEqual({
+      position: { x: 12.5, y: -8 },
+      scale: 1.2,
+    })
+  })
+
+  it('rejects empty Live2D view set requests before calling the renderer', async () => {
+    const options = createOptions()
+    await listen(options)
+
+    const response = await fetch(`${baseUrl}/v1/live2d/view/set`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({}),
+    })
+
+    expect(response.status).toBe(400)
+    expect(options.renderer.live2dViewSet).not.toHaveBeenCalled()
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: 'FIELD_REQUIRED',
+      },
+    })
+  })
+
+  it('validates Live2D view reset controls before calling the renderer', async () => {
+    const options = createOptions()
+    await listen(options)
+
+    const response = await fetch(`${baseUrl}/v1/live2d/view/reset`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ controls: ['x', 'bad'] }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(options.renderer.live2dViewReset).not.toHaveBeenCalled()
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: 'FIELD_INVALID',
+      },
+    })
+  })
+
+  it('forwards Live2D motion play requests to the renderer', async () => {
+    const options = createOptions()
+    await listen(options)
+
+    const response = await fetch(`${baseUrl}/v1/live2d/motions/play`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ group: 'Idle', index: 0 }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(options.renderer.live2dMotionPlay).toHaveBeenCalledWith({ group: 'Idle', index: 0 })
+    expect(await response.json()).toMatchObject({
+      current: { group: 'Idle', index: 0 },
+    })
+  })
+
+  it('rejects invalid Live2D motion indexes before calling the renderer', async () => {
+    const options = createOptions()
+    await listen(options)
+
+    const response = await fetch(`${baseUrl}/v1/live2d/motions/play`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ group: 'Idle', index: 0.5 }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(options.renderer.live2dMotionPlay).not.toHaveBeenCalled()
     expect(await response.json()).toMatchObject({
       error: {
         code: 'FIELD_INVALID',

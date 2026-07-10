@@ -129,8 +129,19 @@ function isTextContentPart(part: unknown): part is { type: 'text', text: string 
   return record.type === 'text' && typeof record.text === 'string'
 }
 
+/**
+ * Strips AIRI control markers so they never appear in the stage overlay bubble.
+ * Markers are handled for emotion/delay by the TTS special-token path.
+ *
+ * Before: `<|ACT {"emotion":"happy"}|>你好<|DELAY 1|>`
+ * After:  `你好`
+ */
+function stripControlMarkers(text: string): string {
+  return text.replace(/<\|[\s\S]*?\|>/g, '')
+}
+
 function normalizeBubbleText(text: string): string {
-  return text.replace(/\s+/g, ' ').trim()
+  return stripControlMarkers(text).replace(/\s+/g, ' ').trim()
 }
 
 function truncateBubbleText(text: string): string {

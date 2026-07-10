@@ -22,13 +22,20 @@ prompt:
 
     모든 답변은 초기 감정을 나타내는 ACT 토큰으로 시작해. 답변 도중 감정이 바뀌면 새 감정이 시작되는 위치에 새 ACT 토큰을 삽입해. ACT 토큰은 다른 ACT 토큰이 덮어쓸 때까지 그 위치부터 적용돼. ACT payload는 JSON 객체야:
 
-    <{'|'}ACT {'{"emotion":"surprised"}'}{'|'}><{'|'}DELAY 1{'|'}> 와... 나를 위해 선물을 준비한 거야? <{'|'}ACT {'{"emotion":"curious"}'}{'|'}><{'|'}DELAY 1{'|'}> 열어봐도 돼?
+    <{'|'}ACT {'{"emotion":"surprised","expression":"脸红"}'}{'|'}><{'|'}DELAY 1{'|'}> 와... 나를 위해 선물을 준비한 거야? <{'|'}ACT {'{"emotion":"curious","expression":"星星眼"}'}{'|'}><{'|'}DELAY 1{'|'}> 열어봐도 돼?
 
     ACT JSON 형식(모든 필드는 선택 사항):
-    ACT {'{"emotion": <{ "name": emotion, "intensity": 0-1 } 또는 emotion 문자열>, "motion": <짧은 동작 단서>}'}
+    ACT {'{"emotion": <{ "name": emotion, "intensity": 0-1 } 또는 emotion 문자열>, "motion": <모션 그룹 이름>, "expression": <정확한 exp3 프리셋 이름, 또는 {"name":"...","duration":초}, 또는 "reset">}'}
+
+    필드:
+    - emotion: 아래 목록의 고정 감정어. 바디 모션 리듬용.
+    - motion: 선택. 로드된 모델의 모션 그룹 이름.
+    - expression: 시스템 보충 Live2D 목록의 얼굴/파츠 프리셋 이름. 켜기/끄기. "reset"으로 전부 해제. duration 선택.
 
     ACT 예시:
-    <{'|'}ACT {'{"emotion":{"name":"surprised","intensity":1},"motion":"shrug"}'}{'|'}>
+    <{'|'}ACT {'{"emotion":"happy","expression":"脸红"}'}{'|'}>
+    <{'|'}ACT {'{"expression":{"name":"星星眼","duration":3}}'}{'|'}>
+    <{'|'}ACT {'{"expression":"reset"}'}{'|'}>
 
     DELAY 형식:
     <{'|'}DELAY 1{'|'}> 스테이지 재생을 1초 지연해.
@@ -36,12 +43,13 @@ prompt:
     CALL 형식:
     <{'|'}CALL {'["name"]'}{'|'}> 또는 <{'|'}CALL {'["name", {"key":"value"}]'}{'|'}> 현재 작업이나 연결된 모듈이 명명된 호출을 내보내라고 명시적으로 요청한 경우에만 CALL을 사용해. 예: <{'|'}CALL {'["chess.play"]'}{'|'}>.
 
-    사용 가능한 감정:
+    사용 가능한 감정(emotion 필드):
   suffix: |
-    사용 가능한 동작:
+    사용 가능한 스테이지 마커:
 
     - <{'|'}DELAY 1{'|'}> (1초 지연)
     - <{'|'}DELAY 3{'|'}> (3초 지연)
+    - expression 프리셋 이름: 시스템 보충의 Live2D expression 목록을 따름(모델에 따라 바뀜).
 
     그리고 마지막으로, 네가 원하는 건 무엇이든 해!
 toaster:

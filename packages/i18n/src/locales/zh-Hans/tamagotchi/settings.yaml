@@ -38,6 +38,29 @@ pages:
       toggle-ignore-mouse-event:
         label: 忽略鼠标事件
       press-keys: 请按下按键...
+    desktop-control:
+      title: 桌面控制
+      description: 允许智能体在本机控制鼠标、键盘和剪贴板。
+      section:
+        title: 智能体桌面控制
+        description: 开启后，对话工具可以注入键鼠操作。默认每次操作仍会弹出系统确认框。
+      enabled:
+        label: 启用桌面控制
+        description: 总开关。不需要智能体操作本机时请保持关闭。
+      always-allow:
+        label: 总是允许（危险）
+        description: 跳过每次操作的系统确认对话框。仅在完全信任当前模型与环境时使用。
+        toast: 已开启「总是允许」。桌面操作将不再弹出确认。
+      emergency-stop:
+        title: 紧急停止已激活
+        description: 桌面注入已被阻断。请先清除紧急停止，再按需重新打开总开关。快捷键：Ctrl/Cmd+Shift+F12。
+        clear: 清除紧急停止
+        cleared: 已清除紧急停止
+      hints:
+        emergency-shortcut: 紧急停止快捷键为 Ctrl+Shift+F12（macOS 为 Cmd+Shift+F12）。
+      errors:
+        load: 无法加载桌面控制设置
+        save: 无法更新桌面控制设置
     developer:
       sections:
         section:

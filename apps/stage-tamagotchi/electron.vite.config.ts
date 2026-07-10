@@ -23,11 +23,22 @@ export default defineConfig({
   main: {
     build: {
       externalizeDeps: {
+        // Bundle pure-TS workspace packages so Electron main does not load raw
+        // TypeScript source graphs (Node ESM requires file extensions).
+        exclude: [
+          '@proj-airi/desktop-control',
+        ],
         include: [
           // Native modules that have `__dirname` usages. Externalize to avoid bundling
           // them into ESM and causing issues in runtime.
           'electron-click-drag-plugin',
           'uiohook-napi',
+          // nut.js free fork + platform native bindings used by @proj-airi/desktop-control
+          '@nut-tree-fork/nut-js',
+          '@nut-tree-fork/libnut',
+          '@nut-tree-fork/libnut-win32',
+          '@nut-tree-fork/libnut-darwin',
+          '@nut-tree-fork/libnut-linux',
         ],
       },
     },

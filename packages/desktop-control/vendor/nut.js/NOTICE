@@ -1,0 +1,15 @@
+This directory contains a source snapshot of nut.js (Apache-2.0) for local
+secondary development.
+
+Upstream: https://github.com/nut-tree/nut.js
+License: Apache License 2.0
+
+Native prebuilt bindings used at runtime come from the public npm package
+`@nut-tree-fork/nut-js` (and its platform packages), not from building this
+tree in-place. Modify sources here when forking behavior; wire runtime
+imports in packages/desktop-control/src accordingly.
+
+Workspace isolation:
+- Nested `package.json` files were renamed to `package.upstream.json` so pnpm
+  workspace globs (`packages/**`) do not treat vendored packages as workspace
+  members (those manifests referenced paid/unavailable `@nut-tree/*` natives).

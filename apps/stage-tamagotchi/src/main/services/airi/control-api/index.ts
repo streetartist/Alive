@@ -40,6 +40,11 @@ import {
   electronControlApiGetProviderModels,
   electronControlApiGetProviderStatus,
   electronControlApiGetStatus,
+  electronControlApiLive2DMotionList,
+  electronControlApiLive2DMotionPlay,
+  electronControlApiLive2DViewGet,
+  electronControlApiLive2DViewReset,
+  electronControlApiLive2DViewSet,
   electronControlApiSetActiveProvider,
   electronControlApiSpeechSynthesize,
   electronPluginToolsChanged,
@@ -182,6 +187,11 @@ export function setupControlApiServer(options: ControlApiServerOptions): ServerM
   const invokeExpressionSaveDefaults = defineInvoke(rendererContext, electronControlApiExpressionSaveDefaults)
   const invokeExpressionSetLlmMode = defineInvoke(rendererContext, electronControlApiExpressionSetLlmMode)
   const invokeExpressionSetLlmExposed = defineInvoke(rendererContext, electronControlApiExpressionSetLlmExposed)
+  const invokeLive2DViewGet = defineInvoke(rendererContext, electronControlApiLive2DViewGet)
+  const invokeLive2DViewSet = defineInvoke(rendererContext, electronControlApiLive2DViewSet)
+  const invokeLive2DViewReset = defineInvoke(rendererContext, electronControlApiLive2DViewReset)
+  const invokeLive2DMotionList = defineInvoke(rendererContext, electronControlApiLive2DMotionList)
+  const invokeLive2DMotionPlay = defineInvoke(rendererContext, electronControlApiLive2DMotionPlay)
 
   let address: ControlApiServerAddressSnapshot | undefined
 
@@ -212,6 +222,11 @@ export function setupControlApiServer(options: ControlApiServerOptions): ServerM
       expressionSaveDefaults: () => invokeExpressionSaveDefaults(),
       expressionSetLlmMode: payload => invokeExpressionSetLlmMode(payload),
       expressionSetLlmExposed: payload => invokeExpressionSetLlmExposed(payload),
+      live2dViewGet: () => invokeLive2DViewGet(),
+      live2dViewSet: payload => invokeLive2DViewSet(payload),
+      live2dViewReset: payload => invokeLive2DViewReset(payload),
+      live2dMotionList: () => invokeLive2DMotionList(),
+      live2dMotionPlay: payload => invokeLive2DMotionPlay(payload),
     },
     windows: {
       openMain: () => showAndFocusWindow(options.mainWindow),

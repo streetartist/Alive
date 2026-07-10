@@ -1,6 +1,7 @@
 export { createStreamingControlParser } from './controller'
 export { normalizeActPayload } from './payloads'
 export type {
+  NormalizedActExpression,
   NormalizedActPayload,
   StreamingControlEmotion,
   StreamingControlEmotionPayload,

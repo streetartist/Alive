@@ -3,6 +3,45 @@ const TAG_CLOSE = '|>'
 const ESCAPED_TAG_OPEN = '<{\'|\'}'
 const ESCAPED_TAG_CLOSE = '{\'|\'}>'
 
+/**
+ * Removes complete AIRI special markers (`<|...|>`) from text.
+ *
+ * Before:
+ * - `<|ACT {"emotion":"happy"}|>你好<|DELAY 1|>世界`
+ *
+ * After:
+ * - `你好世界`
+ *
+ * Incomplete markers (missing `|>`) are dropped from the open tag to the end so
+ * they never leak into UI or TTS.
+ */
+export function stripLlmSpecialMarkers(text: string): string {
+  if (!text.includes(TAG_OPEN))
+    return text
+
+  let result = ''
+  let index = 0
+
+  while (index < text.length) {
+    const openIndex = text.indexOf(TAG_OPEN, index)
+    if (openIndex < 0) {
+      result += text.slice(index)
+      break
+    }
+
+    result += text.slice(index, openIndex)
+    const closeIndex = text.indexOf(TAG_CLOSE, openIndex + TAG_OPEN.length)
+    if (closeIndex < 0) {
+      // Incomplete special: drop the rest so partial markers never surface.
+      break
+    }
+
+    index = closeIndex + TAG_CLOSE.length
+  }
+
+  return result
+}
+
 interface MarkerToken {
   type: 'literal' | 'special'
   value: string
@@ -168,6 +207,8 @@ function createLlmMarkerStream(input: ReadableStream<string>, options?: MarkerPa
  * Returns:
  * - A parser with `consume()` and `end()` methods.
  */
+export { TAG_CLOSE, TAG_OPEN }
+
 export function useLlmmarkerParser(options: {
   onLiteral?: (literal: string) => void | Promise<void>
   onSpecial?: (special: string) => void | Promise<void>

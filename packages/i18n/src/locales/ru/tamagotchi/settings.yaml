@@ -38,6 +38,35 @@ pages:
       toggle-ignore-mouse-event:
         label: Игнорировать курсор мыши
       press-keys: Нажмите любую клавишу...
+    desktop-control:
+      title: Desktop Control
+      description: Allow the agent to control mouse, keyboard, and clipboard on this computer.
+      section:
+        title: Agent desktop control
+        description: >-
+          When enabled, chat tools can inject mouse and keyboard input.
+          By default every action still asks for OS confirmation.
+      enabled:
+        label: Enable desktop control
+        description: Master switch. Keep off unless you want the agent to operate this PC.
+      always-allow:
+        label: Always allow (dangerous)
+        description: >-
+          Skip the OS confirmation dialog for every action.
+          Only use this if you fully trust the model and your setup.
+        toast: Always-allow is on. Desktop actions will not ask for confirmation.
+      emergency-stop:
+        title: Emergency stop is active
+        description: >-
+          Desktop injection is blocked. Clear emergency stop, then turn the master switch on again if needed.
+          Shortcut: Ctrl/Cmd+Shift+F12.
+        clear: Clear emergency stop
+        cleared: Emergency stop cleared
+      hints:
+        emergency-shortcut: Emergency stop shortcut is Ctrl+Shift+F12 (Cmd+Shift+F12 on macOS).
+      errors:
+        load: Failed to load desktop control settings
+        save: Failed to update desktop control settings
     developer:
       sections:
         section:

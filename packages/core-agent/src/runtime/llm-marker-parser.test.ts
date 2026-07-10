@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { useLlmmarkerParser } from './llm-marker-parser'
+import { stripLlmSpecialMarkers, useLlmmarkerParser } from './llm-marker-parser'
 
 /**
  * @example
@@ -69,5 +69,21 @@ describe('useLlmmarkerParser', () => {
 
     expect(collectedLiterals).toEqual([])
     expect(collectedSpecials).toEqual([])
+  })
+
+  // https://github.com/moeru-ai/airi/issues — stage bubble leaked ACT/DELAY markers
+  // ROOT CAUSE:
+  //
+  // Final `categorization.speech` was built from raw fullText via categorizeResponse,
+  // which does not strip <|ACT|> / <|DELAY|>. UI prefers categorization.speech.
+  //
+  // stripLlmSpecialMarkers is the shared defense for final speech text.
+  it('stripLlmSpecialMarkers removes ACT and DELAY markers from visible speech', () => {
+    const raw = '<|ACT {"emotion":"neutral","motion":"sleepy"}|>嗯...早上好...<|DELAY 1|>你是谁呀？'
+    expect(stripLlmSpecialMarkers(raw)).toBe('嗯...早上好...你是谁呀？')
+  })
+
+  it('stripLlmSpecialMarkers drops incomplete trailing markers', () => {
+    expect(stripLlmSpecialMarkers('你好 <|ACT {"emotion":"happy"}')).toBe('你好 ')
   })
 })

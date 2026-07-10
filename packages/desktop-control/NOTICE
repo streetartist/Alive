@@ -1,0 +1,15 @@
+Third-party notice
+==================
+
+This package vendors open-source source from nut.js for secondary development
+and uses the free community fork runtime `@nut-tree-fork/nut-js` for prebuilt
+native bindings.
+
+nut.js
+------
+- Upstream: https://github.com/nut-tree/nut.js
+- License: Apache License 2.0
+- Vendored tree: packages/desktop-control/vendor/nut.js
+
+AIRI package code under packages/desktop-control/src is licensed under the
+repository MIT license unless otherwise noted.
