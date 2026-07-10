@@ -132,7 +132,8 @@ function refreshWindow() {
 </script>
 
 <template>
-  <div ref="islandRef" fixed bottom-2 right-2>
+  <!-- NOTICE: Must sit above StageChatBubble (z-40) so the expanded control panel is not covered. -->
+  <div ref="islandRef" fixed bottom-2 right-2 z-50>
     <div flex flex-col items-end gap-1>
       <!-- iOS Style Drawer Panel -->
       <Transition
