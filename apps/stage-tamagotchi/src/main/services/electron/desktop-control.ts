@@ -25,8 +25,12 @@ type EventaMainContext = ReturnType<typeof createContext>['context']
 
 const log = useLogg('desktop-control').useGlobalConfig()
 
+// NOTICE:
+// Do not use Ctrl+Shift+Esc — Windows reserves it for Task Manager, so
+// globalShortcut.register returns false every time.
+// Prefer an F-key chord that apps can own on Windows/macOS.
 /** Emergency kill-switch accelerator (global). */
-const EMERGENCY_STOP_ACCELERATOR = 'CommandOrControl+Shift+Escape'
+const EMERGENCY_STOP_ACCELERATOR = 'CommandOrControl+Shift+F12'
 
 let controlPromise: Promise<DesktopControl> | undefined
 let emergencyShortcutRegistered = false
