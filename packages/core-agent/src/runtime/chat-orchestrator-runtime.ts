@@ -11,7 +11,7 @@ import { createQueue } from '@proj-airi/stream-kit'
 import { formatContextPromptText } from '../messages/context-prompt'
 import { formatTimePrefix } from '../messages/datetime-prefix'
 import { createChatHooks } from './agent-hooks'
-import { useLlmmarkerParser } from './llm-marker-parser'
+import { stripLlmSpecialMarkers, useLlmmarkerParser } from './llm-marker-parser'
 import { categorizeResponse, createStreamingCategorizer } from './response-categoriser'
 
 const STREAMING_UI_FLUSH_CHUNK_SIZE = 24
@@ -544,9 +544,23 @@ export function createChatOrchestratorRuntime(deps: ChatOrchestratorRuntimeDeps)
 
           const finalCategorization = categorizeResponse(fullText, deps.getActiveProvider())
 
+          // ROOT CAUSE:
+          //
+          // `categorizeResponse` only peels HTML-like <think>/<reasoning> tags.
+          // It does NOT remove AIRI control markers such as `<|ACT ...|>` or
+          // `<|DELAY ...|>`. Stage chat bubbles prefer `categorization.speech`
+          // over slices/content, so those markers were shown and could be read.
+          //
+          // Prefer the already-filtered streaming content (literals only). Fall
+          // back to categorization speech after stripping special markers.
+          const streamedSpeech = typeof buildingMessage.content === 'string'
+            ? buildingMessage.content
+            : ''
+          const categorizedSpeech = stripLlmSpecialMarkers(finalCategorization.speech)
+
           const reasoningContentField = buildingMessage.categorization?.reasoning?.trim()
           buildingMessage.categorization = {
-            speech: finalCategorization.speech,
+            speech: streamedSpeech.trim() || categorizedSpeech,
             reasoning: reasoningContentField || finalCategorization.reasoning,
           }
           patchForegroundStream(sessionId, buildingMessage)

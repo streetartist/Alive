@@ -257,15 +257,20 @@ export const useExpressionStore = defineStore('live2d-expressions', () => {
     const numericValue = typeof value === 'boolean' ? (value ? 1 : 0) : value
 
     if (resolved.kind === 'group') {
+      // Group set is an on/off (optionally weighted) apply of baked exp3 targets.
+      // Do not write the same raw number onto every parameter: targets can be -1, 1, etc.
+      const weight = Math.min(1, Math.max(0, numericValue))
+      const active = weight > 0
       const states: ExpressionState[] = []
       for (const param of resolved.group.parameters) {
         const entry = expressions.value.get(param.parameterId)
         if (entry) {
-          applyValue(entry, numericValue, duration)
+          const applied = active ? param.value * weight : entry.modelDefault
+          applyValue(entry, applied, duration)
           states.push(toState(entry))
         }
       }
-      setActiveExpressionGroup(resolved.group.name, numericValue !== 0, duration)
+      setActiveExpressionGroup(resolved.group.name, active, duration)
       return { success: true, state: states }
     }
 

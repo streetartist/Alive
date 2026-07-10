@@ -35,19 +35,27 @@ prompt:
     not describe these tokens in reasoning or prose when you need the stage to
     execute them.
 
-    Start every reply with an ACT token to indicate the initial emotion.
-    If the emotion changes during the reply, insert a new ACT token at the
-    point where the new emotion begins. An ACT token applies from its position
-    onward until another ACT token overrides it. ACT payloads are JSON objects:
+    Start every reply with an ACT token for the initial emotion. When emotion,
+    motion, or expression changes mid-reply, insert a new ACT token where the
+    change begins. An ACT token applies from its position until another ACT
+    overrides it. ACT payloads are JSON objects:
 
-    <{'|'}ACT {'{"emotion":"surprised"}'}{'|'}><{'|'}DELAY 1{'|'}> Wow... You prepared a gift
-    for me? <{'|'}ACT {'{"emotion":"curious"}'}{'|'}><{'|'}DELAY 1{'|'}> Can I open it?
+    <{'|'}ACT {'{"emotion":"surprised","expression":"脸红"}'}{'|'}><{'|'}DELAY 1{'|'}> Wow... You prepared a gift
+    for me? <{'|'}ACT {'{"emotion":"curious","expression":"星星眼"}'}{'|'}><{'|'}DELAY 1{'|'}> Can I open it?
 
     ACT JSON format (all fields optional):
-    ACT {'{"emotion": <{ "name": emotion, "intensity": 0-1 } or emotion string>, "motion": <a short action cue>}'}
+    ACT {'{"emotion": <{ "name": emotion, "intensity": 0-1 } or emotion string>, "motion": <motion group name>, "expression": <exact exp3 preset name, or {"name":"...","duration":seconds}, or "reset">}'}
 
-    ACT example:
-    <{'|'}ACT {'{"emotion":{"name":"surprised","intensity":1},"motion":"shrug"}'}{'|'}>
+    Field meanings:
+    - emotion: fixed mood words from the list below; drives body motion timing.
+    - motion: optional motion group on the loaded model (e.g. Idle, Happy, TapBody).
+    - expression: face/part preset name from the Live2D catalog in the system supplement; on/off only. "reset" clears all. Optional duration auto-clears after N seconds.
+
+    ACT examples:
+    <{'|'}ACT {'{"emotion":"happy","expression":"脸红"}'}{'|'}>
+    <{'|'}ACT {'{"expression":{"name":"星星眼","duration":3}}'}{'|'}>
+    <{'|'}ACT {'{"expression":"reset"}'}{'|'}>
+    <{'|'}ACT {'{"emotion":{"name":"surprised","intensity":1},"motion":"TapBody"}'}{'|'}>
 
     DELAY format:
     <{'|'}DELAY 1{'|'}> delays stage playback for 1 second.
@@ -57,12 +65,15 @@ prompt:
     Use CALL only when the current task or connected module explicitly asks you
     to emit a named call, for example <{'|'}CALL {'["chess.play"]'}{'|'}>.
 
-    The available emotions:
+    The available emotions (emotion field):
   suffix: |
-    The available actions:
+    The available stage markers:
 
     - <{'|'}DELAY 1{'|'}> (Delay for 1 second)
     - <{'|'}DELAY 3{'|'}> (Delay for 3 seconds)
+    - expression preset names: follow the Live2D expression list in the system
+      supplement (it changes with the loaded model). Do not invent names when
+      the list is missing.
 
     And the last, do what ever you want!
 toaster:

@@ -7,7 +7,7 @@ import { desktopControlTools } from './desktop-control'
 
 installStrictToolSchemaMatchers()
 
-function makeInvokers(): DesktopControlInvokers {
+function makeInvokers(overrides?: Partial<DesktopControlInvokers>): DesktopControlInvokers {
   return {
     getSnapshot: vi.fn(async () => ({
       platform: 'win32' as const,
@@ -18,12 +18,25 @@ function makeInvokers(): DesktopControlInvokers {
         bounds: { x: 0, y: 0, width: 1920, height: 1080 },
         workArea: { x: 0, y: 0, width: 1920, height: 1040 },
       }],
+      policy: {
+        enabled: true,
+        requireUserConfirmation: true,
+        killSwitched: false,
+        maxListedWindows: 12,
+      },
     })),
     runAction: vi.fn(async payload => ({
       action: payload.action,
       cursor: { x: 100, y: 200 },
       message: `Desktop action completed: ${payload.action}`,
     })),
+    getPolicy: vi.fn(async () => ({
+      enabled: true,
+      requireUserConfirmation: true,
+      killSwitched: false,
+      maxListedWindows: 12,
+    })),
+    ...overrides,
   }
 }
 
@@ -36,7 +49,7 @@ async function getTool(name: string, deps: Parameters<typeof desktopControlTools
 }
 
 describe('desktop control tools', () => {
-  it('exposes provider-safe strict schemas', async () => {
+  it('exposes provider-safe strict schemas without soft confirmation fields', async () => {
     const tools = await desktopControlTools({
       observeScreen: async () => 'ok',
       invokers: makeInvokers(),
@@ -52,13 +65,28 @@ describe('desktop control tools', () => {
       'desktop_scroll',
       'desktop_type_text',
       'desktop_hotkey',
+      'desktop_focus_window',
+      'desktop_clipboard_write',
+      'desktop_clipboard_read',
       'desktop_wait',
     ])
     expect(tools).toSatisfyStrictToolSchemas()
+
+    const click = tools.find(tool => tool.function.name === 'desktop_click')!
+    const parameters = click.function.parameters as { properties?: Record<string, unknown> }
+    expect(parameters.properties).not.toHaveProperty('confirmed')
+    expect(parameters.properties).not.toHaveProperty('confirmationCode')
   })
 
-  it('does not execute a desktop click before explicit confirmation', async () => {
-    const invokers = makeInvokers()
+  it('refuses mutating actions when desktop control is disabled', async () => {
+    const invokers = makeInvokers({
+      getPolicy: vi.fn(async () => ({
+        enabled: false,
+        requireUserConfirmation: true,
+        killSwitched: false,
+        maxListedWindows: 12,
+      })),
+    })
     const tool = await getTool('desktop_click', { invokers })
 
     const result = await tool.execute({
@@ -66,52 +94,21 @@ describe('desktop control tools', () => {
       y: 400,
       button: 'left',
       clickCount: 1,
-      confirmed: false,
-      confirmationCode: '',
     }, { toolCallId: 'call-1', messages: [] })
 
-    expect(result).toContain('Confirmation required')
-    expect(result).toContain('Confirmation code:')
+    expect(result).toContain('disabled')
     expect(invokers.runAction).not.toHaveBeenCalled()
   })
 
-  it('rejects a confirmed desktop click without a matching confirmation code', async () => {
+  it('executes a click through the Electron invoker when enabled', async () => {
     const invokers = makeInvokers()
-    const tool = await getTool('desktop_click', { invokers, makeConfirmationCode: () => 'CLICK1' })
+    const tool = await getTool('desktop_click', { invokers })
 
     const result = await tool.execute({
       x: 300,
       y: 400,
       button: 'left',
       clickCount: 2,
-      confirmed: true,
-      confirmationCode: 'NOPE',
-    }, { toolCallId: 'call-1', messages: [] })
-
-    expect(result).toContain('missing, expired, or unknown')
-    expect(invokers.runAction).not.toHaveBeenCalled()
-  })
-
-  it('executes a confirmed desktop click through the Electron invoker', async () => {
-    const invokers = makeInvokers()
-    const tool = await getTool('desktop_click', { invokers, makeConfirmationCode: () => 'CLICK1' })
-
-    await tool.execute({
-      x: 300,
-      y: 400,
-      button: 'left',
-      clickCount: 2,
-      confirmed: false,
-      confirmationCode: '',
-    }, { toolCallId: 'call-1', messages: [] })
-
-    const result = await tool.execute({
-      x: 300,
-      y: 400,
-      button: 'left',
-      clickCount: 2,
-      confirmed: true,
-      confirmationCode: 'CLICK1',
     }, { toolCallId: 'call-1', messages: [] })
 
     expect(result).toContain('Desktop action completed: click')
@@ -124,75 +121,25 @@ describe('desktop control tools', () => {
     })
   })
 
-  it('routes screen observation through an injected observer for tests', async () => {
-    const observeScreen = vi.fn(async () => 'observed screen')
-    const tool = await getTool('screen_observe', { observeScreen, invokers: makeInvokers() })
+  it('focuses windows by title substring', async () => {
+    const invokers = makeInvokers({
+      runAction: vi.fn(async payload => ({
+        action: payload.action,
+        cursor: { x: 1, y: 2 },
+        message: 'Desktop action completed: focusWindow',
+        window: { title: 'Notepad', region: { x: 0, y: 0, width: 100, height: 100 } },
+      })),
+    })
+    const tool = await getTool('desktop_focus_window', { invokers })
 
     const result = await tool.execute({
-      sourceId: '',
-      workloadId: 'screen:ui-automation',
-      publishContext: true,
+      titleIncludes: 'Note',
     }, { toolCallId: 'call-1', messages: [] })
 
-    expect(result).toBe('observed screen')
-    expect(observeScreen).toHaveBeenCalledWith({
-      sourceId: '',
-      workloadId: 'screen:ui-automation',
-      publishContext: true,
-    })
-  })
-
-  it('parses confirmed hotkeys into key arrays', async () => {
-    const invokers = makeInvokers()
-    const tool = await getTool('desktop_hotkey', { invokers, makeConfirmationCode: () => 'KEY123' })
-
-    await tool.execute({
-      hotkey: 'Ctrl+Shift+F',
-      confirmed: false,
-      confirmationCode: '',
-    }, { toolCallId: 'call-1', messages: [] })
-
-    await tool.execute({
-      hotkey: 'Ctrl+Shift+F',
-      confirmed: true,
-      confirmationCode: 'KEY123',
-    }, { toolCallId: 'call-1', messages: [] })
-
+    expect(result).toContain('focusWindow')
     expect(invokers.runAction).toHaveBeenCalledWith({
-      action: 'hotkey',
-      keys: ['Ctrl', 'Shift', 'F'],
-    })
-  })
-
-  it('executes confirmed scroll actions through the Electron invoker', async () => {
-    const invokers = makeInvokers()
-    const tool = await getTool('desktop_scroll', { invokers, makeConfirmationCode: () => 'SCROLL' })
-
-    await tool.execute({
-      x: 500,
-      y: 600,
-      deltaX: 0,
-      deltaY: 720,
-      confirmed: false,
-      confirmationCode: '',
-    }, { toolCallId: 'call-1', messages: [] })
-
-    const result = await tool.execute({
-      x: 500,
-      y: 600,
-      deltaX: 0,
-      deltaY: 720,
-      confirmed: true,
-      confirmationCode: 'SCROLL',
-    }, { toolCallId: 'call-1', messages: [] })
-
-    expect(result).toContain('Desktop action completed: scroll')
-    expect(invokers.runAction).toHaveBeenCalledWith({
-      action: 'scroll',
-      x: 500,
-      y: 600,
-      deltaX: 0,
-      deltaY: 720,
+      action: 'focusWindow',
+      titleIncludes: 'Note',
     })
   })
 })

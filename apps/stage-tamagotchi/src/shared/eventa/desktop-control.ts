@@ -1,75 +1,27 @@
+import type {
+  DesktopControlAction,
+  DesktopControlPolicy,
+  DesktopControlPolicyUpdate,
+  DesktopControlResult,
+  DesktopControlSnapshot,
+} from '@proj-airi/desktop-control'
+
 import { defineInvokeEventa } from '@moeru/eventa'
 
+export type {
+  DesktopControlAction as ElectronDesktopControlAction,
+  DesktopControlPolicy as ElectronDesktopControlPolicy,
+  DesktopControlPolicyUpdate as ElectronDesktopControlPolicyUpdate,
+  DesktopControlResult as ElectronDesktopControlResult,
+  DesktopControlSnapshot as ElectronDesktopSnapshot,
+}
+
+/** @deprecated Prefer ElectronDesktopControlAction from package types. Kept for older imports. */
 export type DesktopControlMouseButton = 'left' | 'middle' | 'right'
 
-export interface DesktopControlPoint {
-  x: number
-  y: number
-}
-
-export interface DesktopControlRectangle {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-export interface DesktopControlDisplaySnapshot {
-  id: number
-  scaleFactor: number
-  bounds: DesktopControlRectangle
-  workArea: DesktopControlRectangle
-}
-
-export interface ElectronDesktopSnapshot {
-  platform: NodeJS.Platform
-  cursor: DesktopControlPoint
-  displays: DesktopControlDisplaySnapshot[]
-}
-
-export type ElectronDesktopControlAction
-  = | {
-    action: 'move'
-    x: number
-    y: number
-  }
-  | {
-    action: 'click'
-    x: number
-    y: number
-    button: DesktopControlMouseButton
-    clickCount: number
-  }
-  | {
-    action: 'drag'
-    fromX: number
-    fromY: number
-    toX: number
-    toY: number
-    button: DesktopControlMouseButton
-    durationMs: number
-  }
-  | {
-    action: 'scroll'
-    x: number
-    y: number
-    deltaX: number
-    deltaY: number
-  }
-  | {
-    action: 'typeText'
-    text: string
-  }
-  | {
-    action: 'hotkey'
-    keys: string[]
-  }
-
-export interface ElectronDesktopControlResult {
-  action: ElectronDesktopControlAction['action']
-  cursor: DesktopControlPoint
-  message: string
-}
-
-export const electronDesktopGetSnapshot = defineInvokeEventa<ElectronDesktopSnapshot>('eventa:invoke:electron:desktop-control:get-snapshot')
-export const electronDesktopRunAction = defineInvokeEventa<ElectronDesktopControlResult, ElectronDesktopControlAction>('eventa:invoke:electron:desktop-control:run-action')
+export const electronDesktopGetSnapshot = defineInvokeEventa<DesktopControlSnapshot>('eventa:invoke:electron:desktop-control:get-snapshot')
+export const electronDesktopRunAction = defineInvokeEventa<DesktopControlResult, DesktopControlAction>('eventa:invoke:electron:desktop-control:run-action')
+export const electronDesktopGetPolicy = defineInvokeEventa<DesktopControlPolicy>('eventa:invoke:electron:desktop-control:get-policy')
+export const electronDesktopSetPolicy = defineInvokeEventa<DesktopControlPolicy, DesktopControlPolicyUpdate>('eventa:invoke:electron:desktop-control:set-policy')
+export const electronDesktopEmergencyStop = defineInvokeEventa<DesktopControlPolicy>('eventa:invoke:electron:desktop-control:emergency-stop')
+export const electronDesktopClearEmergencyStop = defineInvokeEventa<DesktopControlPolicy>('eventa:invoke:electron:desktop-control:clear-emergency-stop')

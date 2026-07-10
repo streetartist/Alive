@@ -330,17 +330,43 @@ export const useAiriCardStore = defineStore('airi-card', () => {
     }
   }
 
+  function buildDefaultSystemPrompt() {
+    return SystemPromptV2(
+      t('base.prompt.prefix'),
+      t('base.prompt.suffix'),
+    ).content
+  }
+
   function initialize() {
-    if (cards.value.has('default'))
-      return
-    cards.value.set('default', newAiriCard({
-      name: 'ReLU',
-      version: '1.0.0',
-      description: SystemPromptV2(
-        t('base.prompt.prefix'),
-        t('base.prompt.suffix'),
-      ).content,
-    }))
+    const description = buildDefaultSystemPrompt()
+
+    if (!cards.value.has('default')) {
+      cards.value.set('default', newAiriCard({
+        name: 'ReLU',
+        version: '1.0.0',
+        description,
+      }))
+    }
+    else {
+      // NOTICE:
+      // Default card description is frozen in localStorage at first launch.
+      // When ACT docs gain new fields (e.g. expression), rewrite the stock ReLU
+      // card only if it still looks like the old emotion/motion-only prompt.
+      // Removal condition: drop once a dedicated prompt-version field exists on cards.
+      const card = cards.value.get('default')
+      const looksStock = card?.name === 'ReLU'
+      const stored = card?.description ?? ''
+      const missingExpressionDocs = !/(?:["']expression["']|\bexpression\b|expression：)/i.test(stored)
+      // Intermediate prompts that banned non-existent tools / emotion words as expression names.
+      const hasAwkwardProhibitions = /live2d_expression|live2d_motion|happy\/sad|不要把 happy|不要调用 live2d|Do not call live2d|Never invent emotion words/i.test(stored)
+      if (card && looksStock && (missingExpressionDocs || hasAwkwardProhibitions)) {
+        cards.value.set('default', {
+          ...card,
+          description,
+        })
+      }
+    }
+
     if (!activeCardId.value)
       activeCardId.value = 'default'
   }

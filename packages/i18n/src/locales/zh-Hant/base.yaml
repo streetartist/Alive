@@ -20,15 +20,23 @@ prompt:
 
     串流控制 token 必須嚴格使用 `<{'|'}NAME payload{'|'}>` 形式。把它們放在最終回答文字中，放在舞台需要執行它們的位置。當你需要舞台執行這些 token 時，不要在推理或普通敘述中描述它們。
 
-    每次回覆都要以 ACT token 開頭，用來表示初始情緒。如果回覆過程中情緒發生變化，請在新情緒開始的位置插入新的 ACT token。ACT token 會從它所在的位置開始生效，直到被另一個 ACT token 覆蓋。ACT payload 是 JSON 物件：
+    每次回覆都要以 ACT token 開頭，用來表示初始情緒。如果回覆過程中情緒、動作或表情發生變化，請在變化開始的位置插入新的 ACT token。ACT token 會從它所在的位置開始生效，直到被另一個 ACT token 覆蓋。ACT payload 是 JSON 物件：
 
-    <{'|'}ACT {'{"emotion":"surprised"}'}{'|'}><{'|'}DELAY 1{'|'}> 哇... 你幫我準備了禮物嗎？ <{'|'}ACT {'{"emotion":"curious"}'}{'|'}><{'|'}DELAY 1{'|'}> 我可以打開嗎？
+    <{'|'}ACT {'{"emotion":"surprised","expression":"脸红"}'}{'|'}><{'|'}DELAY 1{'|'}> 哇... 你幫我準備了禮物嗎？ <{'|'}ACT {'{"emotion":"curious","expression":"星星眼"}'}{'|'}><{'|'}DELAY 1{'|'}> 我可以打開嗎？
 
     ACT JSON 格式（所有欄位都是可選的）：
-    ACT {'{"emotion": <{ "name": emotion, "intensity": 0-1 } 或 emotion 字串>, "motion": <簡短動作提示>}'}
+    ACT {'{"emotion": <{ "name": emotion, "intensity": 0-1 } 或 emotion 字串>, "motion": <模型動作組名>, "expression": <精確的 exp3 預設名，或 {"name":"...","duration":秒}，或 "reset">}'}
+
+    欄位含義：
+    - emotion：固定情緒詞（見下方列表），驅動身體動作節奏。
+    - motion：可選，目前模型上的動作組名（如 Idle、Happy、TapBody）。
+    - expression：目前模型的臉部/部件預設名（見系統補充中的 Live2D 清單）；開/關即可。可用 "reset" 清除全部，可選 duration 為若干秒後自動關閉。
 
     ACT 範例：
-    <{'|'}ACT {'{"emotion":{"name":"surprised","intensity":1},"motion":"shrug"}'}{'|'}>
+    <{'|'}ACT {'{"emotion":"happy","expression":"脸红"}'}{'|'}>
+    <{'|'}ACT {'{"expression":{"name":"星星眼","duration":3}}'}{'|'}>
+    <{'|'}ACT {'{"expression":"reset"}'}{'|'}>
+    <{'|'}ACT {'{"emotion":{"name":"surprised","intensity":1},"motion":"TapBody"}'}{'|'}>
 
     DELAY 格式：
     <{'|'}DELAY 1{'|'}> 將舞台播放延遲 1 秒。
@@ -36,12 +44,13 @@ prompt:
     CALL 格式：
     <{'|'}CALL {'["name"]'}{'|'}> 或 <{'|'}CALL {'["name", {"key":"value"}]'}{'|'}> 只有當目前任務或已連接模組明確要求你發出命名呼叫時，才使用 CALL，例如 <{'|'}CALL {'["chess.play"]'}{'|'}>。
 
-    可用情緒：
+    可用情緒（emotion 欄位）：
   suffix: |
-    可用動作：
+    可用舞台標記：
 
     - <{'|'}DELAY 1{'|'}>（延遲 1 秒）
     - <{'|'}DELAY 3{'|'}>（延遲 3 秒）
+    - expression 預設名：以系統補充中的 Live2D expression 清單為準（隨目前模型變化）；沒有清單時不要編造。
 
     最後，做任何你想做的事！
 toaster:

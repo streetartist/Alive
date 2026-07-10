@@ -5,6 +5,7 @@ import type { z } from 'zod'
 
 import type {
   ElectronDesktopControlAction,
+  ElectronDesktopControlPolicy,
   ElectronDesktopControlResult,
   ElectronDesktopSnapshot,
 } from '../../../../shared/eventa'
@@ -18,18 +19,25 @@ import { shallowRef } from 'vue'
 import { toJsonSchema } from 'xsschema'
 import { z as zod } from 'zod'
 
-import { electronDesktopGetSnapshot, electronDesktopRunAction } from '../../../../shared/eventa'
+// NOTICE: Import coordinates-only entry so the renderer never pulls nut.js natives.
+import { mapFramePointToGlobal } from '@proj-airi/desktop-control/coordinates'
+
+import {
+  electronDesktopGetPolicy,
+  electronDesktopGetSnapshot,
+  electronDesktopRunAction,
+} from '../../../../shared/eventa'
 import { useVisionScreenCapture } from '../../../composables/use-vision-screen-capture'
 
 interface DesktopControlInvokers {
   getSnapshot: () => Promise<ElectronDesktopSnapshot>
   runAction: (payload: ElectronDesktopControlAction) => Promise<ElectronDesktopControlResult>
+  getPolicy: () => Promise<ElectronDesktopControlPolicy>
 }
 
 interface DesktopControlToolDeps {
   invokers?: DesktopControlInvokers
   observeScreen?: (input: ScreenObserveToolInput) => Promise<string>
-  makeConfirmationCode?: () => string
   sleep?: (durationMs: number) => Promise<void>
 }
 
@@ -44,12 +52,6 @@ interface ScreenObservationRuntime {
   video: HTMLVideoElement
 }
 
-interface PendingDesktopAction {
-  actionKey: string
-  actionLabel: string
-  expiresAt: number
-}
-
 const screenSourcesParams = zod.object({
   refresh: zod.boolean().describe('Whether to refresh the desktop capturer source list before returning it.'),
 }).strict()
@@ -60,15 +62,9 @@ const screenObserveParams = zod.object({
   publishContext: zod.boolean().describe('Whether to publish the result into AIRI character context. Use true when the observation should help the next reply.'),
 }).strict()
 
-const confirmationFields = {
-  confirmed: zod.boolean().describe('Set false to request confirmation. Set true only after the user replies with the confirmation code for this exact action.'),
-  confirmationCode: zod.string().describe('Confirmation code returned by the previous unconfirmed tool call. Use an empty string when confirmed=false.'),
-}
-
 const moveParams = zod.object({
   x: zod.number().describe('Global screen X coordinate in physical desktop pixels.'),
   y: zod.number().describe('Global screen Y coordinate in physical desktop pixels.'),
-  ...confirmationFields,
 }).strict()
 
 const clickParams = zod.object({
@@ -76,7 +72,6 @@ const clickParams = zod.object({
   y: zod.number().describe('Global screen Y coordinate in physical desktop pixels.'),
   button: zod.enum(['left', 'middle', 'right']).describe('Mouse button.'),
   clickCount: zod.number().int().min(1).max(3).describe('Number of clicks, 1 to 3.'),
-  ...confirmationFields,
 }).strict()
 
 const dragParams = zod.object({
@@ -86,7 +81,6 @@ const dragParams = zod.object({
   toY: zod.number().describe('Global screen Y coordinate where the drag ends.'),
   button: zod.enum(['left', 'middle', 'right']).describe('Mouse button held during the drag.'),
   durationMs: zod.number().int().min(0).max(5000).describe('Drag duration in milliseconds.'),
-  ...confirmationFields,
 }).strict()
 
 const scrollParams = zod.object({
@@ -94,21 +88,32 @@ const scrollParams = zod.object({
   y: zod.number().describe('Global screen Y coordinate where the wheel event should happen.'),
   deltaX: zod.number().int().min(-6000).max(6000).describe('Horizontal wheel delta. Positive scrolls right, negative scrolls left.'),
   deltaY: zod.number().int().min(-6000).max(6000).describe('Vertical wheel delta. Positive scrolls down, negative scrolls up.'),
-  ...confirmationFields,
 }).strict()
 
 const typeTextParams = zod.object({
   text: zod.string().max(2000).describe('Text to type into the currently focused app.'),
-  ...confirmationFields,
 }).strict()
 
 const hotkeyParams = zod.object({
-  hotkey: zod.string().describe('Hotkey chord like "Ctrl+S", "Alt+Tab", "Enter", or "Ctrl+Shift+F".'),
-  ...confirmationFields,
+  hotkey: zod.string().describe('Hotkey chord like "Ctrl+S", "Alt+Tab", "Enter", or "Ctrl+Shift+F". Dangerous chords like Alt+F4 are blocked.'),
 }).strict()
 
 const waitParams = zod.object({
   durationMs: zod.number().int().min(100).max(10000).describe('How long to wait before observing again, in milliseconds.'),
+}).strict()
+
+const focusWindowParams = zod.object({
+  titleIncludes: zod.string().min(1).max(200).describe('Case-insensitive substring matched against open window titles.'),
+}).strict()
+
+const clipboardWriteParams = zod.object({
+  text: zod.string().max(20000).describe('Text to write to the system clipboard.'),
+}).strict()
+
+// NOTICE: Provider-strict tool schemas require every property key to be listed in
+// `required`. Use a single required boolean instead of an empty object schema.
+const clipboardReadParams = zod.object({
+  acknowledge: zod.boolean().describe('Set true to acknowledge reading the system clipboard.'),
 }).strict()
 
 type ScreenObserveToolInput = z.infer<typeof screenObserveParams>
@@ -120,11 +125,11 @@ type ScrollToolInput = z.infer<typeof scrollParams>
 type TypeTextToolInput = z.infer<typeof typeTextParams>
 type HotkeyToolInput = z.infer<typeof hotkeyParams>
 type WaitToolInput = z.infer<typeof waitParams>
+type FocusWindowToolInput = z.infer<typeof focusWindowParams>
+type ClipboardWriteToolInput = z.infer<typeof clipboardWriteParams>
 
 let cachedInvokers: DesktopControlInvokers | undefined
 let cachedObservationRuntime: ScreenObservationRuntime | undefined
-const pendingActions = new Map<string, PendingDesktopAction>()
-const PENDING_ACTION_TTL_MS = 2 * 60 * 1000
 
 function createInvokers(): DesktopControlInvokers {
   const { context } = createContext(window.electron.ipcRenderer)
@@ -132,6 +137,7 @@ function createInvokers(): DesktopControlInvokers {
   return {
     getSnapshot: defineInvoke(context, electronDesktopGetSnapshot),
     runAction: defineInvoke(context, electronDesktopRunAction),
+    getPolicy: defineInvoke(context, electronDesktopGetPolicy),
   }
 }
 
@@ -190,73 +196,15 @@ function sleep(durationMs: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, durationMs))
 }
 
-function createConfirmationCode(deps?: DesktopControlToolDeps): string {
-  if (deps?.makeConfirmationCode)
-    return deps.makeConfirmationCode()
-
-  return Math.random().toString(36).slice(2, 8).toUpperCase()
-}
-
-function pruneExpiredPendingActions(now = Date.now()) {
-  for (const [code, pending] of pendingActions) {
-    if (pending.expiresAt <= now)
-      pendingActions.delete(code)
+async function ensureEnabledForMutation(deps?: DesktopControlToolDeps): Promise<string | null> {
+  const policy = await resolveInvokers(deps?.invokers).getPolicy()
+  if (policy.killSwitched) {
+    return 'Desktop control is kill-switched (emergency stop). Clear emergency stop and re-enable desktop control in settings before injecting input.'
   }
-}
-
-function stableActionKey(action: ElectronDesktopControlAction): string {
-  return JSON.stringify(action, Object.keys(action).sort())
-}
-
-function requestConfirmation(action: ElectronDesktopControlAction, actionLabel: string, deps?: DesktopControlToolDeps): string {
-  pruneExpiredPendingActions()
-  const confirmationCode = createConfirmationCode(deps)
-  pendingActions.set(confirmationCode, {
-    actionKey: stableActionKey(action),
-    actionLabel,
-    expiresAt: Date.now() + PENDING_ACTION_TTL_MS,
-  })
-
-  return [
-    `Confirmation required before ${actionLabel}.`,
-    `Confirmation code: ${confirmationCode}`,
-    'Ask the user to approve this exact action and repeat the tool call with confirmed=true and this confirmationCode.',
-  ].join(' ')
-}
-
-function consumeConfirmation(action: ElectronDesktopControlAction, actionLabel: string, confirmationCode: string): string | null {
-  pruneExpiredPendingActions()
-  const normalizedCode = confirmationCode.trim().toUpperCase()
-  const pending = pendingActions.get(normalizedCode)
-  if (!pending) {
-    return [
-      `Confirmation code is missing, expired, or unknown for ${actionLabel}.`,
-      'Call the tool once with confirmed=false to generate a fresh confirmation code.',
-    ].join(' ')
+  if (!policy.enabled) {
+    return 'Desktop control is disabled. Enable it in Settings → System → Desktop Control first.'
   }
-
-  if (pending.actionKey !== stableActionKey(action)) {
-    return [
-      `Confirmation code ${normalizedCode} belongs to a different desktop action.`,
-      `Pending action: ${pending.actionLabel}.`,
-      'Request a fresh confirmation code for the new action.',
-    ].join(' ')
-  }
-
-  pendingActions.delete(normalizedCode)
   return null
-}
-
-function resolveConfirmedAction(
-  params: { confirmed: boolean, confirmationCode: string },
-  action: ElectronDesktopControlAction,
-  actionLabel: string,
-  deps?: DesktopControlToolDeps,
-): string | null {
-  if (!params.confirmed)
-    return requestConfirmation(action, actionLabel, deps)
-
-  return consumeConfirmation(action, actionLabel, params.confirmationCode)
 }
 
 async function ensureSourceSelected(runtime: ScreenObservationRuntime, sourceId: string) {
@@ -313,7 +261,19 @@ function formatSnapshot(snapshot: ElectronDesktopSnapshot): string {
     `display ${display.id}: bounds=${display.bounds.x},${display.bounds.y},${display.bounds.width}x${display.bounds.height}, workArea=${display.workArea.x},${display.workArea.y},${display.workArea.width}x${display.workArea.height}, scale=${display.scaleFactor}`,
   ).join('; ')
 
-  return `platform=${snapshot.platform}; cursor=${snapshot.cursor.x},${snapshot.cursor.y}; ${displays || 'no displays'}`
+  const active = snapshot.activeWindow
+    ? `activeWindow="${snapshot.activeWindow.title}" @${snapshot.activeWindow.region.x},${snapshot.activeWindow.region.y},${snapshot.activeWindow.region.width}x${snapshot.activeWindow.region.height}`
+    : 'activeWindow=unknown'
+
+  const windows = snapshot.windows?.length
+    ? `windows=${snapshot.windows.map(window => JSON.stringify(window.title)).join(', ')}`
+    : 'windows=none'
+
+  const policy = snapshot.policy
+    ? `policy enabled=${snapshot.policy.enabled} confirm=${snapshot.policy.requireUserConfirmation} killSwitched=${snapshot.policy.killSwitched}`
+    : 'policy=unknown'
+
+  return `platform=${snapshot.platform}; cursor=${snapshot.cursor.x},${snapshot.cursor.y}; ${displays || 'no displays'}; ${active}; ${windows}; ${policy}`
 }
 
 function sourceKind(sourceId: string): 'screen' | 'window' | 'device' | 'unknown' {
@@ -328,9 +288,7 @@ function sourceKind(sourceId: string): 'screen' | 'window' | 'device' | 'unknown
 
 async function listScreenSources(input: ScreenSourcesToolInput, deps?: DesktopControlToolDeps): Promise<string> {
   const invokers = resolveInvokers(deps?.invokers)
-  const [snapshot] = await Promise.all([
-    invokers.getSnapshot(),
-  ])
+  const snapshot = await invokers.getSnapshot()
   const runtime = resolveObservationRuntime()
 
   if (input.refresh || !runtime.sources.value.length)
@@ -349,6 +307,7 @@ async function listScreenSources(input: ScreenSourcesToolInput, deps?: DesktopCo
     '',
     `Desktop snapshot: ${formatSnapshot(snapshot)}`,
     'Use screen_observe with a sourceId from this list, then use global desktop coordinates from the snapshot for control tools.',
+    'Mutating desktop_* tools require desktop control to be enabled; OS may still show a confirmation dialog.',
   ].join('\n')
 }
 
@@ -385,93 +344,55 @@ async function captureScreenObservation(input: ScreenObserveToolInput, deps?: De
     publishContext: input.publishContext,
   })
 
+  const frameWidth = runtime.video.videoWidth || 1280
+  const frameHeight = runtime.video.videoHeight || 720
+  const primaryDisplay = snapshot.displays[0]
+  const coordinateExample = primaryDisplay
+    ? (() => {
+        const center = mapFramePointToGlobal({
+          frameX: frameWidth / 2,
+          frameY: frameHeight / 2,
+          frameWidth,
+          frameHeight,
+          sourceBounds: primaryDisplay.bounds,
+        })
+        return `Example: frame center (${Math.round(frameWidth / 2)}, ${Math.round(frameHeight / 2)}) on display ${primaryDisplay.id} maps to global (${center.x}, ${center.y}).`
+      })()
+    : 'Example: map frame (x,y) with display bounds as sourceBounds before calling desktop_* tools.'
+
   return [
     `Source: ${runtime.activeSourceId.value}`,
     selectedSource ? `Source name: ${selectedSource.name}` : undefined,
-    `Captured frame: ${runtime.video.videoWidth}x${runtime.video.videoHeight}`,
+    `Captured frame: ${frameWidth}x${frameHeight}`,
     `Workload: ${workloadId}`,
     `Desktop snapshot: ${formatSnapshot(snapshot)}`,
-    'Coordinate guide: control tools use global desktop coordinates. For a full-screen source, use the matching display bounds as the origin and size.',
+    'Coordinate guide: control tools use global desktop physical pixels, not frame pixels.',
+    'For a full-screen source, treat the matching display bounds as the capture region, then scale frame x/y by bounds.width/frameWidth and bounds.height/frameHeight.',
+    coordinateExample,
     '',
     result.text,
   ].filter((line): line is string => typeof line === 'string').join('\n')
 }
 
-async function executeMove(input: MoveToolInput, deps?: DesktopControlToolDeps): Promise<string> {
-  const action: ElectronDesktopControlAction = {
-    action: 'move',
-    x: input.x,
-    y: input.y,
+async function runMutatingAction(
+  action: ElectronDesktopControlAction,
+  deps?: DesktopControlToolDeps,
+): Promise<string> {
+  const disabled = await ensureEnabledForMutation(deps)
+  if (disabled)
+    return disabled
+
+  try {
+    const result = await resolveInvokers(deps?.invokers).runAction(action)
+    const extras = [
+      result.window ? `window="${result.window.title}"` : undefined,
+      result.clipboardText !== undefined ? `clipboardText=${JSON.stringify(result.clipboardText.slice(0, 200))}` : undefined,
+    ].filter(Boolean)
+    return `${result.message}. Cursor is now at ${result.cursor.x},${result.cursor.y}.${extras.length ? ` ${extras.join(' ')}` : ''}`
   }
-  const confirmationError = resolveConfirmedAction(input, action, `moving the cursor to (${input.x}, ${input.y})`, deps)
-  if (confirmationError)
-    return confirmationError
-
-  const result = await resolveInvokers(deps?.invokers).runAction(action)
-  return `${result.message}. Cursor is now at ${result.cursor.x},${result.cursor.y}.`
-}
-
-async function executeClick(input: ClickToolInput, deps?: DesktopControlToolDeps): Promise<string> {
-  const action: ElectronDesktopControlAction = {
-    action: 'click',
-    x: input.x,
-    y: input.y,
-    button: input.button,
-    clickCount: input.clickCount,
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
   }
-  const confirmationError = resolveConfirmedAction(input, action, `clicking ${input.button} ${input.clickCount} time(s) at (${input.x}, ${input.y})`, deps)
-  if (confirmationError)
-    return confirmationError
-
-  const result = await resolveInvokers(deps?.invokers).runAction(action)
-  return `${result.message}. Cursor is now at ${result.cursor.x},${result.cursor.y}.`
-}
-
-async function executeDrag(input: DragToolInput, deps?: DesktopControlToolDeps): Promise<string> {
-  const action: ElectronDesktopControlAction = {
-    action: 'drag',
-    fromX: input.fromX,
-    fromY: input.fromY,
-    toX: input.toX,
-    toY: input.toY,
-    button: input.button,
-    durationMs: input.durationMs,
-  }
-  const confirmationError = resolveConfirmedAction(input, action, `dragging from (${input.fromX}, ${input.fromY}) to (${input.toX}, ${input.toY})`, deps)
-  if (confirmationError)
-    return confirmationError
-
-  const result = await resolveInvokers(deps?.invokers).runAction(action)
-  return `${result.message}. Cursor is now at ${result.cursor.x},${result.cursor.y}.`
-}
-
-async function executeScroll(input: ScrollToolInput, deps?: DesktopControlToolDeps): Promise<string> {
-  const action: ElectronDesktopControlAction = {
-    action: 'scroll',
-    x: input.x,
-    y: input.y,
-    deltaX: input.deltaX,
-    deltaY: input.deltaY,
-  }
-  const confirmationError = resolveConfirmedAction(input, action, `scrolling at (${input.x}, ${input.y}) by deltaX=${input.deltaX}, deltaY=${input.deltaY}`, deps)
-  if (confirmationError)
-    return confirmationError
-
-  const result = await resolveInvokers(deps?.invokers).runAction(action)
-  return `${result.message}. Cursor is now at ${result.cursor.x},${result.cursor.y}.`
-}
-
-async function executeTypeText(input: TypeTextToolInput, deps?: DesktopControlToolDeps): Promise<string> {
-  const action: ElectronDesktopControlAction = {
-    action: 'typeText',
-    text: input.text,
-  }
-  const confirmationError = resolveConfirmedAction(input, action, `typing ${JSON.stringify(input.text)}`, deps)
-  if (confirmationError)
-    return confirmationError
-
-  const result = await resolveInvokers(deps?.invokers).runAction(action)
-  return `${result.message}.`
 }
 
 function parseHotkey(hotkey: string): string[] {
@@ -481,41 +402,33 @@ function parseHotkey(hotkey: string): string[] {
     .filter(Boolean)
 }
 
-async function executeHotkey(input: HotkeyToolInput, deps?: DesktopControlToolDeps): Promise<string> {
-  const keys = parseHotkey(input.hotkey)
-  const action: ElectronDesktopControlAction = {
-    action: 'hotkey',
-    keys,
-  }
-  const confirmationError = resolveConfirmedAction(input, action, `pressing ${input.hotkey}`, deps)
-  if (confirmationError)
-    return confirmationError
-
-  const result = await resolveInvokers(deps?.invokers).runAction(action)
-  return `${result.message}.`
-}
-
-async function executeWait(input: WaitToolInput, deps?: DesktopControlToolDeps): Promise<string> {
-  await (deps?.sleep ?? sleep)(input.durationMs)
-  return `Waited ${input.durationMs} ms.`
-}
-
 async function toolSchema(schema: z.ZodTypeAny): Promise<JsonSchema> {
-  return await toJsonSchema(schema) as JsonSchema
+  const json = await toJsonSchema(schema) as JsonSchema & {
+    type?: string
+    properties?: Record<string, unknown>
+    required?: string[]
+  }
+
+  // NOTICE: Provider-strict schemas require `required` whenever `properties` exists.
+  // zod/xsschema often omits empty `required` for all-optional objects.
+  if (json && typeof json === 'object' && json.properties && !Array.isArray(json.required))
+    json.required = []
+
+  return json
 }
 
 /**
  * Creates AIRI's desktop observation and control tools.
  *
- * The toolset intentionally separates observation from input actions. Input
- * actions require a confirmation flag so the model has to ask before it mutates
- * the user's desktop state.
+ * Observation is always available. Mutating input requires desktop control to be
+ * enabled in main-process policy; OS confirmation is enforced in main, not via
+ * soft confirmation codes in the tool layer.
  */
 export async function desktopControlTools(deps: DesktopControlToolDeps = {}): Promise<Tool[]> {
   return [
     rawTool({
       name: 'screen_sources',
-      description: 'List capturable screens/windows plus desktop display bounds and cursor position. Use this before screen_observe when choosing a source or coordinate system.',
+      description: 'List capturable screens/windows plus desktop display bounds, active window, and control policy.',
       execute: params => listScreenSources(params as ScreenSourcesToolInput, deps),
       parameters: await toolSchema(screenSourcesParams),
     }),
@@ -529,44 +442,113 @@ export async function desktopControlTools(deps: DesktopControlToolDeps = {}): Pr
     }),
     rawTool({
       name: 'desktop_move',
-      description: 'Move the cursor to a global desktop coordinate. First call with confirmed=false to get a confirmation code; execute only after the user approves that exact code.',
-      execute: params => executeMove(params as MoveToolInput, deps),
+      description: 'Move the cursor to a global desktop coordinate. Requires desktop control enabled; may prompt the user for OS confirmation.',
+      execute: params => runMutatingAction({
+        action: 'move',
+        x: (params as MoveToolInput).x,
+        y: (params as MoveToolInput).y,
+      }, deps),
       parameters: await toolSchema(moveParams),
     }),
     rawTool({
       name: 'desktop_click',
-      description: 'Click a global desktop coordinate. First call with confirmed=false to get a confirmation code; execute only after the user approves that exact code.',
-      execute: params => executeClick(params as ClickToolInput, deps),
+      description: 'Click a global desktop coordinate. Requires desktop control enabled; may prompt the user for OS confirmation.',
+      execute: params => runMutatingAction({
+        action: 'click',
+        x: (params as ClickToolInput).x,
+        y: (params as ClickToolInput).y,
+        button: (params as ClickToolInput).button,
+        clickCount: (params as ClickToolInput).clickCount,
+      }, deps),
       parameters: await toolSchema(clickParams),
     }),
     rawTool({
       name: 'desktop_drag',
-      description: 'Drag the mouse between global desktop coordinates. First call with confirmed=false to get a confirmation code; execute only after the user approves that exact code.',
-      execute: params => executeDrag(params as DragToolInput, deps),
+      description: 'Drag the mouse between global desktop coordinates. Requires desktop control enabled; may prompt the user for OS confirmation.',
+      execute: params => runMutatingAction({
+        action: 'drag',
+        fromX: (params as DragToolInput).fromX,
+        fromY: (params as DragToolInput).fromY,
+        toX: (params as DragToolInput).toX,
+        toY: (params as DragToolInput).toY,
+        button: (params as DragToolInput).button,
+        durationMs: (params as DragToolInput).durationMs,
+      }, deps),
       parameters: await toolSchema(dragParams),
     }),
     rawTool({
       name: 'desktop_scroll',
-      description: 'Send a wheel scroll at a global desktop coordinate. Positive deltaY scrolls down. First call with confirmed=false to get a confirmation code; execute only after approval.',
-      execute: params => executeScroll(params as ScrollToolInput, deps),
+      description: 'Send a wheel scroll at a global desktop coordinate. Positive deltaY scrolls down. Requires desktop control enabled.',
+      execute: params => runMutatingAction({
+        action: 'scroll',
+        x: (params as ScrollToolInput).x,
+        y: (params as ScrollToolInput).y,
+        deltaX: (params as ScrollToolInput).deltaX,
+        deltaY: (params as ScrollToolInput).deltaY,
+      }, deps),
       parameters: await toolSchema(scrollParams),
     }),
     rawTool({
       name: 'desktop_type_text',
-      description: 'Type text into the currently focused desktop app. First call with confirmed=false to get a confirmation code; execute only after the user approves that exact code.',
-      execute: params => executeTypeText(params as TypeTextToolInput, deps),
+      description: 'Type text into the currently focused desktop app. Prefer desktop_focus_window first. Requires desktop control enabled.',
+      execute: params => runMutatingAction({
+        action: 'typeText',
+        text: (params as TypeTextToolInput).text,
+      }, deps),
       parameters: await toolSchema(typeTextParams),
     }),
     rawTool({
       name: 'desktop_hotkey',
-      description: 'Press a keyboard shortcut like Ctrl+S, Alt+Tab, Enter, or Escape. First call with confirmed=false to get a confirmation code; execute only after approval.',
-      execute: params => executeHotkey(params as HotkeyToolInput, deps),
+      description: 'Press a keyboard shortcut like Ctrl+S or Enter. Dangerous chords (e.g. Alt+F4) are blocked. Requires desktop control enabled.',
+      execute: params => runMutatingAction({
+        action: 'hotkey',
+        keys: parseHotkey((params as HotkeyToolInput).hotkey),
+      }, deps),
       parameters: await toolSchema(hotkeyParams),
+    }),
+    rawTool({
+      name: 'desktop_focus_window',
+      description: 'Focus an open desktop window by title substring (case-insensitive). Use before typing into a specific app.',
+      execute: params => runMutatingAction({
+        action: 'focusWindow',
+        titleIncludes: (params as FocusWindowToolInput).titleIncludes,
+      }, deps),
+      parameters: await toolSchema(focusWindowParams),
+    }),
+    rawTool({
+      name: 'desktop_clipboard_write',
+      description: 'Write text to the system clipboard. Requires desktop control enabled.',
+      execute: params => runMutatingAction({
+        action: 'clipboardWrite',
+        text: (params as ClipboardWriteToolInput).text,
+      }, deps),
+      parameters: await toolSchema(clipboardWriteParams),
+    }),
+    rawTool({
+      name: 'desktop_clipboard_read',
+      description: 'Read text from the system clipboard. Set acknowledge=true. Does not require OS confirmation.',
+      execute: async (params) => {
+        if (!(params as { acknowledge?: boolean }).acknowledge)
+          return 'Set acknowledge=true to read the system clipboard.'
+        try {
+          const result = await resolveInvokers(deps?.invokers).runAction({ action: 'clipboardRead' })
+          return result.clipboardText !== undefined
+            ? `Clipboard text: ${JSON.stringify(result.clipboardText)}`
+            : result.message
+        }
+        catch (error) {
+          return error instanceof Error ? error.message : String(error)
+        }
+      },
+      parameters: await toolSchema(clipboardReadParams),
     }),
     rawTool({
       name: 'desktop_wait',
       description: 'Wait briefly for the desktop UI to change before observing again.',
-      execute: params => executeWait(params as WaitToolInput, deps),
+      execute: async (params) => {
+        await (deps?.sleep ?? sleep)((params as WaitToolInput).durationMs)
+        return `Waited ${(params as WaitToolInput).durationMs} ms.`
+      },
       parameters: await toolSchema(waitParams),
     }),
   ]

@@ -12,7 +12,7 @@ import { sleep } from '@moeru/std'
 import { createLive2DLipSync } from '@proj-airi/model-driver-lipsync'
 import { wlipsyncProfile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
 import { createPlaybackManager, createSpeechPipeline, normalizeActPayload } from '@proj-airi/pipelines-audio'
-import { Live2DScene, useLive2dParams } from '@proj-airi/stage-ui-live2d'
+import { Live2DScene, useExpressionStore, useLive2dParams } from '@proj-airi/stage-ui-live2d'
 import { SpineScene } from '@proj-airi/stage-ui-spine'
 import { ThreeScene } from '@proj-airi/stage-ui-three'
 import { animations } from '@proj-airi/stage-ui-three/assets/vrm'
@@ -167,6 +167,7 @@ const backgroundStore = useBackgroundStore()
 const { activeBackgroundUrl } = storeToRefs(backgroundStore)
 
 const { currentMotion } = storeToRefs(useLive2dParams())
+const expressionStore = useExpressionStore()
 
 const emotionsQueue = createQueue<EmotionPayload>({
   handlers: [
@@ -216,22 +217,57 @@ function toStageEmotionPayload(payload: { name: string, intensity: number }): Em
   }
 }
 
+/**
+ * Applies speech-timed expression presets from <|ACT|>.
+ *
+ * Unknown names are ignored so a bad model guess never breaks the reply stream.
+ * Live2D only: exp3 groups. VRM morphs still go through emotion.
+ */
+function applyActExpression(expression: ReturnType<typeof normalizeActPayload>['expression']) {
+  if (!expression || stageModelRenderer.value !== 'live2d')
+    return
+
+  if (expression.op === 'reset') {
+    expressionStore.resetAll()
+    return
+  }
+
+  if (expression.op === 'clear') {
+    const result = expressionStore.set(expression.name, 0)
+    if (!result.success) {
+      // eslint-disable-next-line no-console
+      console.debug('expression clear skipped', expression.name, result.error)
+    }
+    return
+  }
+
+  const result = expressionStore.set(expression.name, 1, expression.duration)
+  if (!result.success) {
+    // eslint-disable-next-line no-console
+    console.debug('expression set skipped', expression.name, result.error)
+  }
+}
+
 chatHookCleanups.push(streamingControl.onSignal(async (signal) => {
   if (signal.type === 'act') {
     const act = normalizeActPayload(signal.payload)
-    if (act.motion && stageModelRenderer.value === 'live2d') {
-      currentMotion.value = { group: act.motion }
-      return
-    }
+
+    // Independent fields: expression, emotion, and explicit motion may combine.
+    // Explicit motion wins over emotion→motion mapping when both are present.
+    applyActExpression(act.expression)
+
     if (act.emotion) {
       const emotion = toStageEmotionPayload(act.emotion)
-      if (!emotion)
-        return
-
-      // eslint-disable-next-line no-console
-      console.debug('emotion detected', emotion)
-      emotionsQueue.enqueue(emotion)
+      if (emotion) {
+        // eslint-disable-next-line no-console
+        console.debug('emotion detected', emotion)
+        emotionsQueue.enqueue(emotion)
+      }
     }
+
+    if (act.motion && stageModelRenderer.value === 'live2d')
+      currentMotion.value = { group: act.motion }
+
     return
   }
 

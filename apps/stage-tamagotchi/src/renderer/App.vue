@@ -175,7 +175,7 @@ function createFullStageRuntime() {
   void desktopControlToolsStore.refresh().catch((error) => {
     console.warn('[App] Failed to refresh desktop control runtime tools:', error)
   })
-  void live2dControlToolsStore.refresh().catch((error) => {
+  void live2dControlToolsStore.start().catch((error) => {
     console.warn('[App] Failed to refresh Live2D control runtime tools:', error)
   })
   void refreshPluginRuntimeTools()
