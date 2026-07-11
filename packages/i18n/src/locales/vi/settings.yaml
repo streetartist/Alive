@@ -399,8 +399,71 @@ pages:
     upload: Tải lên
     upload_desc: Bấm hoặc kéo thả gói thẻ AIRI để nhập
   memory:
-    description: Nơi lưu trữ và tổ chức ký ức
-    title: Bộ nhớ
+    title: Trí nhớ
+    description: Xem và quản lý những gì AIRI ghi nhớ về nhân vật đang hoạt động
+    status:
+      enabled: Trí nhớ đang bật
+      enabledDescription: AIRI có thể lưu và gợi nhớ thông tin lâu dài cho nhân vật đang hoạt động
+      disabled: Trí nhớ đang tạm dừng
+      disabledDescription: Bạn vẫn có thể xem hoặc xoá trí nhớ hiện có, nhưng AIRI sẽ không lưu hay gợi nhớ chúng
+    scope:
+      title: Trí nhớ theo nhân vật
+      description: Trí nhớ được tách biệt theo tài khoản và nhân vật đang hoạt động
+      activeCharacter: 'Nhân vật đang hoạt động: {characterId}'
+    controls:
+      title: Điều khiển trí nhớ
+      description: Chọn việc AIRI có ghi nhớ hội thoại hay không và lượng ngữ cảnh được đưa vào câu trả lời
+      enabled:
+        label: Bật trí nhớ dài hạn
+        description: Cho phép AIRI lưu các cuộc trò chuyện đã hoàn tất và gợi nhớ chi tiết liên quan sau này
+      recallLimit:
+        label: Số trí nhớ tối đa mỗi câu trả lời
+        description: Giới hạn số bản ghi liên quan được xem xét cho một câu trả lời
+        value: '{count} trí nhớ'
+      promptCharacterBudget:
+        label: Giới hạn ký tự ngữ cảnh trí nhớ
+        description: Giới hạn số ký tự trí nhớ được thêm vào prompt của mô hình
+        value: '{count} ký tự'
+      refresh: Làm mới trí nhớ
+      clear: Quên toàn bộ trí nhớ
+      clearConfirm: Có, quên tất cả
+      clearCancel: Giữ lại trí nhớ
+    records:
+      title: Nội dung đã ghi nhớ
+      description: Xem thông tin ngữ cảnh AIRI có thể gợi nhớ cho nhân vật này
+      count: '{count} trí nhớ đã lưu'
+      loading: Đang tải trí nhớ…
+      empty:
+        title: Chưa có trí nhớ
+        description: Chi tiết liên quan từ các cuộc trò chuyện đã hoàn tất sẽ xuất hiện tại đây khi trí nhớ dài hạn được bật
+      error:
+        title: Không thể tải trí nhớ
+        description: Kiểm tra dịch vụ trí nhớ rồi thử lại
+        retry: Thử lại
+      kind:
+        episodic: Sự kiện
+        semantic: Sự thật
+        seed: Thông tin khởi tạo nhân vật
+      source:
+        chat-turn: Cuộc trò chuyện
+        character-book: Thẻ nhân vật
+      created: Đã tạo
+      updated: Đã cập nhật
+      lastAccessed: Lần gợi nhớ gần nhất
+      neverAccessed: Chưa từng gợi nhớ
+      recallCount: Số lần gợi nhớ
+      accessCount: '{count} lần gợi nhớ thành công'
+      forget: Quên
+      forgetConfirm: Có, quên mục này
+      forgetCancel: Giữ lại
+      ariaLabel: 'Trí nhớ {kind} được tạo lúc {date}'
+    feedback:
+      forgotten: Đã quên trí nhớ
+      cleared: Đã quên toàn bộ trí nhớ của nhân vật này
+    errors:
+      load: Không thể tải trí nhớ
+      forget: Không thể quên trí nhớ này
+      clear: Không thể xoá toàn bộ trí nhớ
   data:
     title: Dữ liệu
     description: Quản lý dữ liệu AIRI đã lưu, xuất và đặt lại
@@ -664,12 +727,6 @@ pages:
               Note: If your provider does not support verbose_json responses, this setting will have no effect.
             verbose-json-unsupported: >-
               Your provider did not return verbose_json segments. Confidence filtering had no effect on the last transcription.
-    memory-long-term:
-      description: Cài đặt và quản lý trí nhớ dài hạn
-      title: Trí nhớ dài hạn
-    memory-short-term:
-      description: Cài đặt và quản lý trí nhớ ngắn hạn
-      title: Trí nhớ ngắn hạn
     messaging-discord:
       description: Trò chuyện & gọi thoại qua Discord
       title: Discord

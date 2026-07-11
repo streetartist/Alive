@@ -399,8 +399,71 @@ pages:
     upload: アップロード
     upload_desc: AIRI カードパッケージをクリックまたはドラッグしてインポート
   memory:
-    description: 記憶が保存され、整理される場所
     title: 記憶
+    description: アクティブなキャラクターについてAIRIが覚えている内容を確認・管理します
+    status:
+      enabled: 記憶は有効です
+      enabledDescription: AIRIはアクティブなキャラクターの長期記憶を保存し、必要なときに呼び出せます
+      disabled: 記憶は一時停止中です
+      disabledDescription: 既存の記憶は確認・削除できますが、AIRIは新たな保存や呼び出しを行いません
+    scope:
+      title: キャラクター別の記憶
+      description: 記憶はアカウントとアクティブなキャラクターごとに分離されます
+      activeCharacter: 'アクティブなキャラクター: {characterId}'
+    controls:
+      title: 記憶の設定
+      description: 会話を記憶するか、回答に使う記憶コンテキストの量を設定します
+      enabled:
+        label: 長期記憶を有効にする
+        description: 完了した会話を保存し、後で関連する内容を呼び出すことをAIRIに許可します
+      recallLimit:
+        label: 1回の回答で呼び出す記憶の上限
+        description: 1回の回答で検討する関連記録の最大数です
+        value: '{count} 件'
+      promptCharacterBudget:
+        label: 記憶コンテキストの文字数上限
+        description: モデルのプロンプトに追加する記憶の文字数を制限します
+        value: '{count} 文字'
+      refresh: 記憶を更新
+      clear: すべての記憶を忘れる
+      clearConfirm: はい、すべて忘れる
+      clearCancel: 記憶を残す
+    records:
+      title: 覚えている内容
+      description: このキャラクターについてAIRIが呼び出す可能性のある文脈情報を確認します
+      count: '{count} 件の保存済み記憶'
+      loading: 記憶を読み込み中…
+      empty:
+        title: まだ記憶がありません
+        description: 長期記憶が有効な場合、完了した会話から関連する内容がここに表示されます
+      error:
+        title: 記憶を読み込めませんでした
+        description: 記憶バックエンドを確認して、もう一度お試しください
+        retry: 再試行
+      kind:
+        episodic: エピソード
+        semantic: 事実
+        seed: キャラクター初期情報
+      source:
+        chat-turn: 会話
+        character-book: キャラクターカード
+      created: 作成日時
+      updated: 更新日時
+      lastAccessed: 最終呼び出し
+      neverAccessed: 未呼び出し
+      recallCount: 呼び出し回数
+      accessCount: '{count} 回の呼び出しに成功'
+      forget: 忘れる
+      forgetConfirm: はい、忘れる
+      forgetCancel: 残す
+      ariaLabel: '{date}に作成された{kind}の記憶'
+    feedback:
+      forgotten: 記憶を忘れました
+      cleared: このキャラクターのすべての記憶を忘れました
+    errors:
+      load: 記憶の読み込みに失敗しました
+      forget: この記憶を忘れることができませんでした
+      clear: 記憶を消去できませんでした
   data:
     title: データ
     description: AIRIデータの保存、エクスポート、およびリセットの管理
@@ -664,12 +727,6 @@ pages:
               注意：プロバイダーが verbose_json レスポンスをサポートしていない場合、この設定は無効になります。
             verbose-json-unsupported: >-
               プロバイダーから verbose_json セグメントが返されませんでした。信頼度フィルタリングは最後の文字起こしに影響を及ぼしませんでした。
-    memory-long-term:
-      description: 長期記憶固有の設定と管理
-      title: 長期記憶
-    memory-short-term:
-      description: 短期記憶固有の設定と管理
-      title: 短期記憶
     messaging-discord:
       description: Discordでのチャットとボイスチャット
       title: Discord

@@ -10,10 +10,14 @@ export {
 } from './messages/context-prompt'
 export type { ContextSnapshot } from './messages/context-prompt'
 export { formatTimePrefix } from './messages/datetime-prefix'
+export { formatMemoryContextText } from './messages/memory-context'
+export type { MemoryContextFormatOptions } from './messages/memory-context'
 export { createChatHooks } from './runtime/agent-hooks'
 export type {
   ChatOrchestratorLifecycleRecord,
   ChatOrchestratorLLMPort,
+  ChatOrchestratorMemoryOptions,
+  ChatOrchestratorMemoryPort,
   ChatOrchestratorPromptProjection,
   ChatOrchestratorRuntime,
   ChatOrchestratorRuntimeDeps,
@@ -66,3 +70,19 @@ export type {
   StreamFromOptions,
   StreamOptions,
 } from './types/llm'
+
+export type {
+  MemoryBackend,
+  MemoryCharacterBookSource,
+  MemoryChatTurnSource,
+  MemoryCompletedTurn,
+  MemoryKind,
+  MemoryListRequest,
+  MemoryRecallMatch,
+  MemoryRecallRequest,
+  MemoryRecord,
+  MemoryRecordRequest,
+  MemoryScope,
+  MemorySource,
+  MemoryTurnMessage,
+} from '@proj-airi/memory'

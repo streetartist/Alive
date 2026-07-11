@@ -17,8 +17,10 @@ export type ContextLifecyclePhase
     | 'store-ingested'
     | 'store-ingest-rejected'
     | 'before-compose'
+    | 'memory-recall'
     | 'prompt-context-built'
     | 'after-compose'
+    | 'memory-remember'
 
 export interface ContextLifecycleRecord {
   id: string
