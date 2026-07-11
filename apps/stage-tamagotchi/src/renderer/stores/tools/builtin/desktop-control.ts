@@ -12,15 +12,15 @@ import type {
 
 import { defineInvoke } from '@moeru/eventa'
 import { createContext } from '@moeru/eventa/adapters/electron/renderer'
+import { errorMessageFrom } from '@moeru/std'
+// NOTICE: Import coordinates-only entry so the renderer never pulls nut.js natives.
+import { mapFramePointToGlobal } from '@proj-airi/desktop-control/coordinates'
 import { VISION_WORKLOADS } from '@proj-airi/stage-ui/composables/vision/use-vision-workloads'
 import { useVisionOrchestratorStore, useVisionStore } from '@proj-airi/stage-ui/stores/modules/vision'
 import { rawTool } from '@xsai/tool'
 import { shallowRef } from 'vue'
 import { toJsonSchema } from 'xsschema'
 import { z as zod } from 'zod'
-
-// NOTICE: Import coordinates-only entry so the renderer never pulls nut.js natives.
-import { mapFramePointToGlobal } from '@proj-airi/desktop-control/coordinates'
 
 import {
   electronDesktopGetPolicy,
@@ -391,7 +391,7 @@ async function runMutatingAction(
     return `${result.message}. Cursor is now at ${result.cursor.x},${result.cursor.y}.${extras.length ? ` ${extras.join(' ')}` : ''}`
   }
   catch (error) {
-    return error instanceof Error ? error.message : String(error)
+    return errorMessageFrom(error) ?? 'Unknown desktop control error.'
   }
 }
 
@@ -537,7 +537,7 @@ export async function desktopControlTools(deps: DesktopControlToolDeps = {}): Pr
             : result.message
         }
         catch (error) {
-          return error instanceof Error ? error.message : String(error)
+          return errorMessageFrom(error) ?? 'Unknown desktop control error.'
         }
       },
       parameters: await toolSchema(clipboardReadParams),

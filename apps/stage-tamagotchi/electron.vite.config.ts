@@ -16,8 +16,22 @@ import { Download } from '@proj-airi/unplugin-fetch'
 import { DownloadLive2DSDK } from '@proj-airi/unplugin-live2d-sdk'
 import { defineConfig } from 'electron-vite'
 
+import packageJson from './package.json' with { type: 'json' }
+
 const stageUIAssetsRoot = resolve(join(import.meta.dirname, '..', '..', 'packages', 'stage-ui', 'src', 'assets'))
 const sharedCacheDir = resolve(join(import.meta.dirname, '..', '..', '.cache'))
+const externalMainDependencies = new Set([
+  '@proj-airi/i18n',
+  '@nut-tree-fork/libnut',
+  '@nut-tree-fork/libnut-darwin',
+  '@nut-tree-fork/libnut-linux',
+  '@nut-tree-fork/libnut-win32',
+  '@nut-tree-fork/nut-js',
+  'electron-click-drag-plugin',
+  'uiohook-napi',
+])
+const bundledMainDependencies = Object.keys(packageJson.dependencies)
+  .filter(dependency => !externalMainDependencies.has(dependency))
 
 export default defineConfig({
   main: {
@@ -26,6 +40,7 @@ export default defineConfig({
         // Bundle pure-TS workspace packages so Electron main does not load raw
         // TypeScript source graphs (Node ESM requires file extensions).
         exclude: [
+          ...bundledMainDependencies,
           '@proj-airi/desktop-control',
         ],
         include: [
