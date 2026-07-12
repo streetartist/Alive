@@ -685,6 +685,10 @@ pages:
         system-event: 伙伴事件
       milestones:
         growthStage: '关系成长里程碑：进入「{stage}」阶段。'
+      experiences:
+        projectCompleted: |-
+          创意项目已完成：{title}
+          {description}
       created: 创建时间
       updated: 更新时间
       lastAccessed: 最近回忆

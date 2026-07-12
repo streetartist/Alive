@@ -134,6 +134,63 @@ describe('local memory backend', () => {
     expect(await backend.list({ scope, limit: 500 })).toHaveLength(1)
   })
 
+  it('stores one neutral experience for repeated application events', async () => {
+    const backend = createBackend()
+    const input = {
+      idempotencyKey: 'personal-world-project-completed:project-1',
+      scope,
+      content: 'Creative project completed: "Rain sketches"',
+      occurredAt: 456,
+      source: {
+        eventName: 'personal-world-project-completed',
+        eventId: 'project-1',
+      },
+      metadata: { personalWorldProjectId: 'project-1' },
+    }
+
+    const first = await backend.rememberExperience(input)
+    const repeated = await backend.rememberExperience({
+      ...input,
+      content: 'A retry must not overwrite the original experience.',
+    })
+
+    expect(repeated).toEqual(first)
+    expect(first).toMatchObject({
+      id: 'experience:personal-world-project-completed:project-1',
+      kind: 'experience',
+      importance: 0.5,
+      emotionalWeight: 0,
+      createdAt: 456,
+      source: {
+        type: 'system-event',
+        eventName: 'personal-world-project-completed',
+        eventId: 'project-1',
+      },
+      metadata: { personalWorldProjectId: 'project-1' },
+    })
+    expect(await backend.list({ scope, limit: 500 })).toHaveLength(1)
+  })
+
+  it('isolates application experiences by owner and character scope', async () => {
+    const backend = createBackend()
+    const otherScope = { ownerId: scope.ownerId, characterId: 'character-b' }
+    const input = {
+      idempotencyKey: 'personal-world-project-completed:project-1',
+      content: 'Creative project completed: "Rain sketches"',
+      occurredAt: 456,
+      source: {
+        eventName: 'personal-world-project-completed',
+        eventId: 'project-1',
+      },
+    }
+
+    await backend.rememberExperience({ ...input, scope })
+    await backend.rememberExperience({ ...input, scope: otherScope })
+
+    expect(await backend.list({ scope, limit: 500 })).toHaveLength(1)
+    expect(await backend.list({ scope: otherScope, limit: 500 })).toHaveLength(1)
+  })
+
   it('applies only bounded explicit annotations and keeps repeated updates idempotent', async () => {
     const backend = createBackend()
     const record = await backend.rememberTurn(makeTurn('annotated'))

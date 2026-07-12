@@ -3,6 +3,7 @@ import type {
   CompanionIdentityProfile,
   CompanionIdentityPromotionKind,
   PersonalWorldEntry,
+  PersonalWorldProject,
 } from '@proj-airi/companion-core'
 import type { MemoryRecord, MemoryScope } from '@proj-airi/memory'
 
@@ -137,6 +138,18 @@ async function saveFavorite(memory: MemoryRecord) {
   }
   finally {
     savingMemoryId.value = undefined
+  }
+}
+
+async function refreshMemoriesAfterProjectUpdate(project: PersonalWorldProject) {
+  if (project.status !== 'completed')
+    return
+
+  try {
+    memories.value = await memoryStore.listMemories({ ...scope.value })
+  }
+  catch (error) {
+    errorMessage.value = errorMessageFrom(error) ?? t('settings.pages.world.errors.load')
   }
 }
 
@@ -276,7 +289,7 @@ watch([userId, activeCardId], () => {
         icon="i-solar:lightbulb-bolt-bold-duotone"
         @confirm-identity="confirmIdentity"
       />
-      <WorldProjectManager :scope="scope" :creations="creations" />
+      <WorldProjectManager :scope="scope" :creations="creations" @updated="refreshMemoriesAfterProjectUpdate" />
       <WorldCreationGallery :entries="creations" />
       <PersonalWorldEntryList
         :entries="favorites"

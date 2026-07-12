@@ -704,6 +704,10 @@ pages:
         system-event: Companion event
       milestones:
         growthStage: 'Relationship milestone: reached the {stage} stage.'
+      experiences:
+        projectCompleted: |-
+          Creative project completed: {title}
+          {description}
       created: Created
       updated: Updated
       lastAccessed: Last recalled

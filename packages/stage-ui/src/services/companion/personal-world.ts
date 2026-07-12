@@ -4,7 +4,7 @@ import type {
   PersonalWorldProject,
   PersonalWorldProjectUpdate,
 } from '@proj-airi/companion-core'
-import type { MemoryRecord, MemoryScope } from '@proj-airi/memory'
+import type { MemoryExperienceInput, MemoryRecord, MemoryScope } from '@proj-airi/memory'
 
 import type { PersonalWorldRepository } from '../../database/repos/personal-world.repo'
 
@@ -15,6 +15,7 @@ import {
 } from '@proj-airi/companion-core'
 
 import { personalWorldRepo } from '../../database/repos/personal-world.repo'
+import { createPersonalWorldProjectCompletionExperience } from '../personalWorldProjectExperience'
 
 /** Configuration for device-local Personal World operations. */
 export interface PersonalWorldServiceOptions {
@@ -23,6 +24,8 @@ export interface PersonalWorldServiceOptions {
   now?: () => number
   /** Identifier factory used for manually authored entries and projects. @default crypto.randomUUID */
   createId?: () => string
+  /** Optional writer for explicit application experiences; undefined means memory policy declined the event. @default undefined */
+  rememberExperience?: (input: MemoryExperienceInput) => Promise<MemoryRecord | undefined>
 }
 
 /** Device-local operations for one companion's Personal World. */
@@ -69,6 +72,7 @@ export function createPersonalWorldService(
   const repository = options.repository ?? personalWorldRepo
   const now = options.now ?? Date.now
   const createId = options.createId ?? (() => globalThis.crypto.randomUUID())
+  const rememberExperience = options.rememberExperience
   const pendingUpdates = new Map<string, Promise<void>>()
 
   async function updateScope<T>(scope: MemoryScope, update: () => Promise<T>) {
@@ -138,6 +142,8 @@ export function createPersonalWorldService(
           throw new Error('Personal World project was not found in this scope.')
 
         const project = updatePersonalWorldProject(existing, update, now())
+        if (existing.status !== 'completed' && project.status === 'completed')
+          await rememberExperience?.(createPersonalWorldProjectCompletionExperience(project))
         await repository.saveProject(project)
         return project
       })
@@ -203,5 +209,3 @@ export function createPersonalWorldService(
     },
   }
 }
-
-export const personalWorldService = createPersonalWorldService()

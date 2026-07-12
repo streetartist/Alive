@@ -120,6 +120,22 @@ export interface MemoryCompletedTurn {
   assistant: MemoryTurnMessage
 }
 
+/** Application-owned experience offered to a durable memory backend. */
+export interface MemoryExperienceInput {
+  /** Opaque key that makes repeated ingestion of the same experience idempotent. */
+  idempotencyKey: string
+  /** User-and-character ownership boundary for the durable record. */
+  scope: MemoryScope
+  /** Canonical plain-text evidence retained for model context and export. */
+  content: string
+  /** Unix epoch timestamp when the experience occurred or was first captured. */
+  occurredAt: number
+  /** Traceable system event that produced the experience. */
+  source: Omit<MemorySystemEventSource, 'type'>
+  /** Optional structured data used only by application-owned presentation. */
+  metadata?: Record<string, unknown>
+}
+
 /** Application-owned milestone offered to a durable memory backend. */
 export interface MemoryMilestoneInput {
   /** Opaque key that makes repeated ingestion of the same milestone idempotent. */
@@ -236,14 +252,16 @@ export function annotateMemoryRecord(
 /**
  * AIRI-facing durable memory boundary implemented by local or external adapters.
  *
- * Implementations must isolate every operation by `MemoryScope`, keep
- * `rememberTurn` idempotent, and return recall matches in best-first order.
+ * Implementations must isolate every operation by `MemoryScope`, keep every
+ * ingestion operation idempotent, and return recall matches in best-first order.
  */
 export interface MemoryBackend {
   /** Stable adapter identifier used only for diagnostics and settings. */
   readonly id: string
   /** Stores a completed turn, or returns `undefined` when policy declines it. */
   rememberTurn: (input: MemoryCompletedTurn) => Promise<MemoryRecord | undefined>
+  /** Stores one deterministic application experience without inferring user significance. */
+  rememberExperience: (input: MemoryExperienceInput) => Promise<MemoryRecord>
   /** Stores one deterministic application milestone without inferring user significance. */
   rememberMilestone: (input: MemoryMilestoneInput) => Promise<MemoryRecord>
   /** Retrieves structured evidence without rendering provider prompt text. */

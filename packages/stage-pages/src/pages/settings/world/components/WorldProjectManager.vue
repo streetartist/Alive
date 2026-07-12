@@ -21,6 +21,10 @@ const props = defineProps<{
   creations: WorldProjectCreation[]
 }>()
 
+const emit = defineEmits<{
+  updated: [project: PersonalWorldProject]
+}>()
+
 const { t, locale } = useI18n()
 const personalWorldStore = usePersonalWorldStore()
 const loading = shallowRef(false)
@@ -135,9 +139,10 @@ async function updateProject() {
     creationIds: editCreationIds.value,
   }
   try {
-    await personalWorldStore.updateProject({ ...props.scope }, id, update)
+    const project = await personalWorldStore.updateProject({ ...props.scope }, id, update)
     stopEditing()
     feedbackMessage.value = t('settings.pages.world.feedback.projectUpdated')
+    emit('updated', project)
   }
   catch (error) {
     errorMessage.value = errorMessageFrom(error) ?? t('settings.pages.world.errors.saveProject')

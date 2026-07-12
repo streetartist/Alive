@@ -6,6 +6,7 @@ Backend-neutral contracts for connecting AIRI runtimes to durable memory.
 
 - Stable user-and-character memory scope
 - Conversation-turn ingestion envelopes
+- Deterministic application experience ingestion with system-event provenance
 - Deterministic application milestone ingestion with system-event provenance
 - Structured recall results with provenance
 - Explicit fact, experience, emotion, and milestone annotations
@@ -18,9 +19,9 @@ Implement `MemoryBackend` in a storage adapter, then pass only the operations a
 runtime needs. Core agent code consumes structured records and owns prompt
 formatting, so a backend cannot inject arbitrary prompt instructions.
 
-All backend operations must enforce the supplied scope. `rememberTurn` and
-`rememberMilestone` must be idempotent for the supplied `idempotencyKey`, and
-`recall` must return matches in best-first order.
+All backend operations must enforce the supplied scope. `rememberTurn`,
+`rememberExperience`, and `rememberMilestone` must be idempotent for the
+supplied `idempotencyKey`, and `recall` must return matches in best-first order.
 
 Conversation turns begin as neutral `experience` records. Category, importance,
 and emotional weight change only through explicit annotation; adapters must not
@@ -31,6 +32,10 @@ records eligible for recall.
 Application milestones represent deterministic system events rather than model
 inference. They may set `kind: 'milestone'`, but must keep importance and
 emotional weight neutral unless a user explicitly annotates them later.
+
+Application experiences use the same neutral policy for explicit lifecycle
+events that are meaningful shared history but are not relationship milestones.
+The first integrated source is completion of a Personal World creative project.
 
 ## When not to use it
 

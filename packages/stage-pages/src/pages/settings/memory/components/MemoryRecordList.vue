@@ -2,6 +2,7 @@
 import type { MemoryRecord } from '@proj-airi/memory'
 
 import { companionGrowthStageFromMemory } from '@proj-airi/stage-ui/services/companionGrowthMilestone'
+import { personalWorldProjectExperienceFromMemory } from '@proj-airi/stage-ui/services/personalWorldProjectExperience'
 import { Button, Callout, DoubleCheckButton } from '@proj-airi/ui'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -53,12 +54,21 @@ function sourceLabel(record: MemoryRecord) {
 
 function recordContent(record: MemoryRecord) {
   const stage = companionGrowthStageFromMemory(record)
-  if (!stage)
-    return record.content
+  if (stage) {
+    return t('settings.pages.memory.records.milestones.growthStage', {
+      stage: t(`settings.pages.companion.stages.${stage}`),
+    })
+  }
 
-  return t('settings.pages.memory.records.milestones.growthStage', {
-    stage: t(`settings.pages.companion.stages.${stage}`),
-  })
+  const project = personalWorldProjectExperienceFromMemory(record)
+  if (project) {
+    return t('settings.pages.memory.records.experiences.projectCompleted', {
+      title: project.title,
+      description: project.description,
+    })
+  }
+
+  return record.content
 }
 
 function forgetDisabled(record: MemoryRecord) {

@@ -1,5 +1,6 @@
 import type {
   MemoryBackend,
+  MemoryExperienceInput,
   MemoryMilestoneInput,
   MemoryRecallMatch,
   MemoryRecallRequest,
@@ -139,11 +140,11 @@ function scoreRecord(record: MemoryRecord, normalizedQuery: string, queryTokens:
 /**
  * Creates AIRI's built-in device-local conversation memory backend.
  *
- * The implementation intentionally stores completed conversation turns and
- * performs bounded lexical recall only. Semantic consolidation, embeddings,
- * and review/decay policy remain backend responsibilities so a future
- * plast-mem adapter can replace this implementation without changing chat or
- * settings UI contracts.
+ * The implementation stores completed conversation turns and explicit
+ * application events, then performs bounded lexical recall. Semantic
+ * consolidation, embeddings, and review/decay policy remain backend
+ * responsibilities so a future plast-mem adapter can replace this
+ * implementation without changing chat or settings UI contracts.
  */
 export function createLocalMemoryBackend(options: LocalMemoryBackendOptions = {}): MemoryBackend {
   const repository = options.repository ?? memoriesRepo
@@ -193,6 +194,49 @@ export function createLocalMemoryBackend(options: LocalMemoryBackendOptions = {}
     await Promise.all(expired.map(record => repository.remove(scope, record.id)))
   }
 
+  async function rememberApplicationEvent(
+    input: MemoryExperienceInput | MemoryMilestoneInput,
+    kind: 'experience' | 'milestone',
+  ) {
+    const idempotencyKey = input.idempotencyKey.trim()
+    const content = input.content.trim()
+    const eventName = input.source.eventName.trim()
+    const eventId = input.source.eventId.trim()
+    if (!idempotencyKey || !content || !eventName || !eventId)
+      throw new Error(`Memory ${kind} events require idempotency, content, and source identifiers.`)
+    if (!Number.isFinite(input.occurredAt))
+      throw new Error(`Memory ${kind} occurredAt must be a finite timestamp.`)
+
+    const id = `${kind}:${idempotencyKey}`
+    const existing = await repository.get(input.scope, id)
+    if (existing)
+      return existing
+
+    const record: MemoryRecord = {
+      schemaVersion: 2,
+      id,
+      scope: { ...input.scope },
+      kind,
+      // Application categories describe provenance, not inferred significance.
+      importance: 0.5,
+      emotionalWeight: 0,
+      content,
+      source: {
+        type: 'system-event',
+        eventName,
+        eventId,
+      },
+      createdAt: input.occurredAt,
+      updatedAt: input.occurredAt,
+      accessCount: 0,
+      metadata: input.metadata ? { ...input.metadata } : undefined,
+    }
+
+    await repository.save(record)
+    await pruneScope(input.scope)
+    return record
+  }
+
   return {
     id: 'local-indexeddb-v2',
 
@@ -232,44 +276,12 @@ export function createLocalMemoryBackend(options: LocalMemoryBackendOptions = {}
       return record
     },
 
+    async rememberExperience(input: MemoryExperienceInput) {
+      return await rememberApplicationEvent(input, 'experience')
+    },
+
     async rememberMilestone(input: MemoryMilestoneInput) {
-      const idempotencyKey = input.idempotencyKey.trim()
-      const content = input.content.trim()
-      const eventName = input.source.eventName.trim()
-      const eventId = input.source.eventId.trim()
-      if (!idempotencyKey || !content || !eventName || !eventId)
-        throw new Error('Memory milestones require idempotency, content, and source identifiers.')
-      if (!Number.isFinite(input.occurredAt))
-        throw new Error('Memory milestone occurredAt must be a finite timestamp.')
-
-      const id = `milestone:${idempotencyKey}`
-      const existing = await repository.get(input.scope, id)
-      if (existing)
-        return existing
-
-      const record: MemoryRecord = {
-        schemaVersion: 2,
-        id,
-        scope: { ...input.scope },
-        kind: 'milestone',
-        // A milestone is a category, not an inferred claim of user importance.
-        importance: 0.5,
-        emotionalWeight: 0,
-        content,
-        source: {
-          type: 'system-event',
-          eventName,
-          eventId,
-        },
-        createdAt: input.occurredAt,
-        updatedAt: input.occurredAt,
-        accessCount: 0,
-        metadata: input.metadata ? { ...input.metadata } : undefined,
-      }
-
-      await repository.save(record)
-      await pruneScope(input.scope)
-      return record
+      return await rememberApplicationEvent(input, 'milestone')
     },
 
     async recall(input: MemoryRecallRequest) {

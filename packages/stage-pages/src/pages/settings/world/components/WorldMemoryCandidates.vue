@@ -2,6 +2,7 @@
 import type { MemoryRecord } from '@proj-airi/memory'
 
 import { companionGrowthStageFromMemory } from '@proj-airi/stage-ui/services/companionGrowthMilestone'
+import { personalWorldProjectExperienceFromMemory } from '@proj-airi/stage-ui/services/personalWorldProjectExperience'
 import { Button } from '@proj-airi/ui'
 import { useI18n } from 'vue-i18n'
 
@@ -19,12 +20,21 @@ const { t } = useI18n()
 
 function memoryContent(memory: MemoryRecord) {
   const stage = companionGrowthStageFromMemory(memory)
-  if (!stage)
-    return memory.content
+  if (stage) {
+    return t('settings.pages.memory.records.milestones.growthStage', {
+      stage: t(`settings.pages.companion.stages.${stage}`),
+    })
+  }
 
-  return t('settings.pages.memory.records.milestones.growthStage', {
-    stage: t(`settings.pages.companion.stages.${stage}`),
-  })
+  const project = personalWorldProjectExperienceFromMemory(memory)
+  if (project) {
+    return t('settings.pages.memory.records.experiences.projectCompleted', {
+      title: project.title,
+      description: project.description,
+    })
+  }
+
+  return memory.content
 }
 </script>
 

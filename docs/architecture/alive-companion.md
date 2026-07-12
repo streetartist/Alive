@@ -151,6 +151,12 @@ creation may belong to several projects. Deleting a project never deletes its
 creations, while a missing creation remains as a visible removable reference
 instead of silently rewriting project history.
 
+The first transition of a creative project into `completed` records one
+idempotent application `experience` in long-term memory. The record preserves
+the project title, description, and stable project ID with neutral importance
+and emotional weight. Memory-disabled completion proceeds without writing or
+later backfilling the experience, respecting the user's memory policy.
+
 ## Local API
 
 The Electron control API exposes authenticated, loopback-only companion reads

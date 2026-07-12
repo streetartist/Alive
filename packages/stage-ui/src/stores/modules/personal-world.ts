@@ -9,7 +9,8 @@ import type { MemoryRecord, MemoryScope } from '@proj-airi/memory'
 import { defineStore } from 'pinia'
 import { shallowRef } from 'vue'
 
-import { personalWorldService } from '../../services/companion/personal-world'
+import { createPersonalWorldService } from '../../services/companion/personal-world'
+import { useMemoryStore } from './memory'
 
 function scopeKey(scope: MemoryScope) {
   return JSON.stringify([scope.ownerId, scope.characterId])
@@ -17,6 +18,10 @@ function scopeKey(scope: MemoryScope) {
 
 /** Reactive facade over scoped Personal World entries. */
 export const usePersonalWorldStore = defineStore('personal-world', () => {
+  const memoryStore = useMemoryStore()
+  const personalWorldService = createPersonalWorldService({
+    rememberExperience: input => memoryStore.rememberExperience(input),
+  })
   const entries = shallowRef<Record<string, PersonalWorldEntry[]>>({})
   const projects = shallowRef<Record<string, PersonalWorldProject[]>>({})
   const pendingLoads = new Map<string, Promise<PersonalWorldEntry[]>>()

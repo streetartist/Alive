@@ -4,7 +4,7 @@ import type { MemoryRecord, MemoryScope } from '@proj-airi/memory'
 import memoryDriver from 'unstorage/drivers/memory'
 
 import { createStorage } from 'unstorage'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createPersonalWorldRepository } from '../../database/repos/personal-world.repo'
 import { createPersonalWorldService } from './personal-world'
@@ -89,6 +89,77 @@ describe('personal world service', () => {
       project.id,
       { status: 'completed' },
     )).rejects.toThrow('not found in this scope')
+  })
+
+  it('remembers the first project completion as one neutral application experience', async () => {
+    const rememberExperience = vi.fn(async () => undefined)
+    service = createPersonalWorldService({
+      repository,
+      now: () => 30,
+      createId: () => 'manual-1',
+      rememberExperience,
+    })
+    const project = await service.createProject(scope, {
+      title: 'Rain sketches',
+      description: 'Create a small visual series from rainy evenings.',
+    })
+
+    await service.updateProject(scope, project.id, { status: 'completed' })
+    await service.updateProject(scope, project.id, { title: 'Finished rain sketches' })
+
+    expect(rememberExperience).toHaveBeenCalledTimes(1)
+    expect(rememberExperience).toHaveBeenCalledWith({
+      idempotencyKey: 'personal-world-project-completed:project:manual-1',
+      scope,
+      content: [
+        'Creative project completed: "Rain sketches"',
+        'Project description: "Create a small visual series from rainy evenings."',
+      ].join('\n'),
+      occurredAt: 30,
+      source: {
+        eventName: 'personal-world-project-completed',
+        eventId: 'project:manual-1',
+      },
+      metadata: {
+        personalWorldProjectId: 'project:manual-1',
+        personalWorldProjectTitle: 'Rain sketches',
+        personalWorldProjectDescription: 'Create a small visual series from rainy evenings.',
+      },
+    })
+    expect(await repository.getProject(scope, project.id)).toMatchObject({
+      status: 'completed',
+      completedAt: 30,
+    })
+  })
+
+  it('does not commit project completion when durable experience storage fails', async () => {
+    const rememberExperience = vi.fn()
+      .mockRejectedValueOnce(new Error('Memory write failed.'))
+      .mockResolvedValue(undefined)
+    service = createPersonalWorldService({
+      repository,
+      now: () => 30,
+      createId: () => 'manual-1',
+      rememberExperience,
+    })
+    const project = await service.createProject(scope, {
+      title: 'Rain sketches',
+      description: 'Create a small visual series from rainy evenings.',
+    })
+
+    await expect(service.updateProject(scope, project.id, { status: 'completed' }))
+      .rejects
+      .toThrow('Memory write failed')
+    const persistedAfterFailure = await repository.getProject(scope, project.id)
+    expect(persistedAfterFailure?.status).toBe('idea')
+    expect(persistedAfterFailure?.completedAt).toBeUndefined()
+
+    await service.updateProject(scope, project.id, { status: 'completed' })
+    expect(rememberExperience).toHaveBeenCalledTimes(2)
+    expect(await repository.getProject(scope, project.id)).toMatchObject({
+      status: 'completed',
+      completedAt: 30,
+    })
   })
 
   it('captures reflection journal and learned entries idempotently', async () => {
