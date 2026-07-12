@@ -476,6 +476,33 @@ pages:
         placeholder: e.g. patient curiosity
       reset: Reset changes
       save: Save identity
+    portability:
+      title: Companion data
+      description: Back up or restore the local relationship data owned by you and {name}.
+      exclusions: Backups exclude the character card, chat sessions, global settings, and image files. Creative projects keep only their existing image references.
+      actions:
+        export: Export backup
+        restore: Restore backup
+        clear: Clear this companion
+      restore:
+        label: Restore from a JSON backup
+        placeholder: Choose a companion backup
+        description: Restoring completely replaces the current companion scope and rejects backups from another account or character.
+      clear:
+        title: Start this companion relationship over
+        description: Clears the identity, relationship growth, memories, reflections, and Personal World for you and {name}. The character card and image library remain unchanged.
+      confirm:
+        restore: Replace current data
+        clear: Clear companion data
+      status:
+        exported: Companion backup exported.
+        imported: 'Backup restored: {memories} memories, {entries} world entries, and {projects} projects.'
+        cleared: Companion data for {name} was cleared.
+      errors:
+        title: Companion data operation failed
+        export: Failed to export companion data
+        import: Failed to restore companion data
+        clear: Failed to clear companion data
     life:
       title: Desktop Life
       description: Let AIRI show restrained local behaviors without creating messages or interrupting an active conversation.

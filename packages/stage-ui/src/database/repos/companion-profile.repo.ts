@@ -23,7 +23,8 @@ function belongsToScope(profile: CompanionIdentityProfile, scope: MemoryScope) {
     && profile.scope.characterId === scope.characterId
 }
 
-function isCompanionIdentityProfile(value: unknown): value is CompanionIdentityProfile {
+/** Returns whether a persisted value is a current companion identity profile. */
+export function isCompanionIdentityProfile(value: unknown): value is CompanionIdentityProfile {
   if (!value || typeof value !== 'object')
     return false
 
@@ -32,9 +33,14 @@ function isCompanionIdentityProfile(value: unknown): value is CompanionIdentityP
     && typeof candidate.scope?.ownerId === 'string'
     && typeof candidate.scope?.characterId === 'string'
     && typeof candidate.birthday === 'string'
+    && Number.isFinite(new Date(candidate.birthday).getTime())
     && Array.isArray(candidate.interests)
+    && candidate.interests.length <= 20
+    && candidate.interests.every(item => typeof item === 'string' && item.length <= 100)
     && Array.isArray(candidate.values)
-    && typeof candidate.updatedAt === 'number'
+    && candidate.values.length <= 20
+    && candidate.values.every(item => typeof item === 'string' && item.length <= 100)
+    && Number.isFinite(candidate.updatedAt)
 }
 
 /** Persistence boundary for one identity profile per owner and character. */

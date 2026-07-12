@@ -57,16 +57,30 @@ function hasMemoryRecordFields(value: unknown): value is MemoryRecord | MemoryRe
 
   const candidate = value as Partial<MemoryRecord | MemoryRecordV1>
   return typeof candidate.id === 'string'
+    && candidate.id.length > 0
     && typeof candidate.content === 'string'
     && typeof candidate.scope?.ownerId === 'string'
     && typeof candidate.scope?.characterId === 'string'
     && hasMemorySource(candidate.source)
     && Number.isFinite(candidate.createdAt)
     && Number.isFinite(candidate.updatedAt)
+    && (candidate.lastAccessedAt === undefined || Number.isFinite(candidate.lastAccessedAt))
+    && typeof candidate.accessCount === 'number'
     && Number.isFinite(candidate.accessCount)
+    && Number.isInteger(candidate.accessCount)
+    && candidate.accessCount >= 0
+    && (
+      candidate.metadata === undefined
+      || (
+        typeof candidate.metadata === 'object'
+        && candidate.metadata !== null
+        && !Array.isArray(candidate.metadata)
+      )
+    )
 }
 
-function migrateMemoryRecord(value: unknown): MemoryRecord | null {
+/** Parses current or migratable persisted memory into the current record contract. */
+export function parseMemoryRecord(value: unknown): MemoryRecord | null {
   if (!hasMemoryRecordFields(value))
     return null
 
@@ -121,7 +135,7 @@ export interface MemoryRepository {
 export function createMemoryRepository(memoryStorage: Storage<StorageValue>): MemoryRepository {
   async function readRecord(key: string) {
     const value = await memoryStorage.getItemRaw<unknown>(key)
-    const record = migrateMemoryRecord(value)
+    const record = parseMemoryRecord(value)
     if (record && hasMemoryRecordFields(value) && value.schemaVersion === 1)
       await memoryStorage.setItemRaw(key, record)
     return record

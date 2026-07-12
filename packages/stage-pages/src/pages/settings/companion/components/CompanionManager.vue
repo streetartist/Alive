@@ -15,6 +15,7 @@ import { computed, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
+import CompanionDataPortability from './CompanionDataPortability.vue'
 import CompanionIdentitySettings from './CompanionIdentitySettings.vue'
 import CompanionLifeSettings from './CompanionLifeSettings.vue'
 import CompanionOverview from './CompanionOverview.vue'
@@ -195,6 +196,11 @@ watch([userId, activeCardId], () => {
       <CompanionPersonality :personality="state.personality" />
       <CompanionLifeSettings />
       <CompanionReflections :reflections="state.reflections" />
+      <CompanionDataPortability
+        :scope="scope"
+        :character-name="characterName"
+        @changed="loadCompanion"
+      />
     </template>
   </div>
 </template>

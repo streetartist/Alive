@@ -58,6 +58,7 @@ export const useCompanionStore = defineStore('companion', () => {
   const pendingLoads = new Map<string, Promise<CompanionState>>()
   const pendingProfileLoads = new Map<string, Promise<CompanionIdentityProfile>>()
   const pendingReflections = new Map<string, Promise<CompanionReflectionRunResult>>()
+  const scopeRevisions = new Map<string, number>()
 
   function cacheState(state: CompanionState) {
     states.value = {
@@ -93,7 +94,10 @@ export const useCompanionStore = defineStore('companion', () => {
     if (existingLoad)
       return await existingLoad
 
-    const load = localCompanionService.load(scope).then(cacheState)
+    const revision = scopeRevisions.get(key) ?? 0
+    const load = localCompanionService.load(scope).then(state => (
+      (scopeRevisions.get(key) ?? 0) === revision ? cacheState(state) : state
+    ))
     pendingLoads.set(key, load)
 
     try {
@@ -115,7 +119,10 @@ export const useCompanionStore = defineStore('companion', () => {
     if (existingLoad)
       return await existingLoad
 
-    const load = localCompanionService.loadProfile(scope).then(cacheProfile)
+    const revision = scopeRevisions.get(key) ?? 0
+    const load = localCompanionService.loadProfile(scope).then(profile => (
+      (scopeRevisions.get(key) ?? 0) === revision ? cacheProfile(profile) : profile
+    ))
     pendingProfileLoads.set(key, load)
 
     try {
@@ -268,7 +275,15 @@ export const useCompanionStore = defineStore('companion', () => {
 
   async function clearScope(scope: MemoryScope) {
     await localCompanionService.clear(scope)
+    invalidateScope(scope)
+  }
+
+  /** Drops one in-memory scope without changing its persisted companion data. */
+  function invalidateScope(scope: MemoryScope) {
     const key = scopeKey(scope)
+    scopeRevisions.set(key, (scopeRevisions.get(key) ?? 0) + 1)
+    pendingLoads.delete(key)
+    pendingProfileLoads.delete(key)
     const { [key]: _removed, ...remaining } = states.value
     states.value = remaining
     const { [key]: _removedProfile, ...remainingProfiles } = profiles.value
@@ -291,6 +306,7 @@ export const useCompanionStore = defineStore('companion', () => {
     pendingLoads.clear()
     pendingProfileLoads.clear()
     pendingReflections.clear()
+    scopeRevisions.clear()
   }
 
   return {
@@ -307,6 +323,7 @@ export const useCompanionStore = defineStore('companion', () => {
     feedbackFor,
     reflect,
     promptSupplement,
+    invalidateScope,
     clearScope,
     clearOwner,
     resetState,

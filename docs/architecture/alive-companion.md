@@ -170,6 +170,30 @@ and reflection execution:
 See `docs/ai/context/stage-tamagotchi-control-api.md` for transport and security
 details.
 
+## Companion data portability
+
+Companion Growth provides a versioned JSON backup for one exact
+`ownerId + characterId` scope. The archive includes the companion identity
+profile, relationship and reflection state, durable memories, Personal World
+text entries, and creative project records.
+
+Backups intentionally exclude character cards, chat sessions, provider and
+global settings, and background-journal image blobs. Creative projects retain
+their existing `creationIds` as external references; restoring or clearing a
+companion never copies or deletes those assets.
+
+Restore validates the archive envelope, current record schemas, duplicate IDs,
+and every nested ownership scope before changing storage. Archives cannot be
+silently remapped to another user or character. A valid restore completely
+replaces the current scope, while clear starts that companion relationship over
+without affecting sibling characters.
+
+The current unstorage boundary does not expose one transaction across all
+companion repositories. Operations therefore run sequentially and capture a
+pre-operation snapshot for best-effort rollback. If both the requested
+operation and rollback fail, the error is surfaced and all affected Pinia
+caches are invalidated instead of presenting stale state.
+
 ## Privacy and future storage work
 
 Current companion data is local-first and uses the repository's existing

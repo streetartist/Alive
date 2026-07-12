@@ -42,7 +42,36 @@ function belongsToScope(record: { scope: MemoryScope }, scope: MemoryScope) {
     && record.scope.characterId === scope.characterId
 }
 
-function isPersonalWorldProject(value: unknown): value is PersonalWorldProject {
+function isPersonalWorldEntrySource(value: unknown): value is PersonalWorldEntry['source'] {
+  if (!value || typeof value !== 'object')
+    return false
+
+  const source = value as {
+    type?: unknown
+    reflectionId?: unknown
+    learnedIndex?: unknown
+    memoryId?: unknown
+  }
+  if (source.type === 'manual')
+    return true
+  if (source.type === 'memory')
+    return typeof source.memoryId === 'string'
+  if (source.type === 'reflection') {
+    return typeof source.reflectionId === 'string'
+      && (
+        source.learnedIndex === undefined
+        || (
+          typeof source.learnedIndex === 'number'
+          && Number.isInteger(source.learnedIndex)
+          && source.learnedIndex >= 0
+        )
+      )
+  }
+  return false
+}
+
+/** Returns whether a persisted value is a current Personal World project. */
+export function isPersonalWorldProject(value: unknown): value is PersonalWorldProject {
   if (!value || typeof value !== 'object')
     return false
 
@@ -70,7 +99,8 @@ function isPersonalWorldProject(value: unknown): value is PersonalWorldProject {
     && hasConsistentCompletion
 }
 
-function isPersonalWorldEntry(value: unknown): value is PersonalWorldEntry {
+/** Returns whether a persisted value is a current Personal World entry. */
+export function isPersonalWorldEntry(value: unknown): value is PersonalWorldEntry {
   if (!value || typeof value !== 'object')
     return false
 
@@ -82,9 +112,9 @@ function isPersonalWorldEntry(value: unknown): value is PersonalWorldEntry {
     && ['journal', 'learned', 'favorite'].includes(candidate.kind ?? '')
     && typeof candidate.title === 'string'
     && typeof candidate.content === 'string'
-    && typeof candidate.source?.type === 'string'
-    && typeof candidate.createdAt === 'number'
-    && typeof candidate.updatedAt === 'number'
+    && isPersonalWorldEntrySource(candidate.source)
+    && Number.isFinite(candidate.createdAt)
+    && Number.isFinite(candidate.updatedAt)
 }
 
 /** Persistence boundary for scoped Personal World entries. */

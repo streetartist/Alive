@@ -66,19 +66,101 @@ function hasStateFields(value: unknown): value is CompanionStateV1 | CompanionSt
     && Array.isArray(candidate.reflections)
 }
 
-function isCompanionState(value: unknown): value is CompanionState {
+function isCompanionPersonality(value: unknown): value is CompanionState['personality'] {
+  if (!value || typeof value !== 'object')
+    return false
+  const personality = value as Partial<CompanionState['personality']>
+  return ['curiosity', 'creativity', 'kindness', 'humor'].every((trait) => {
+    const score = personality[trait as keyof CompanionState['personality']]
+    return Number.isFinite(score) && score !== undefined && score >= 0 && score <= 1
+  })
+}
+
+function isCompanionPersonalityChanges(value: unknown) {
+  if (!value || typeof value !== 'object')
+    return false
+  const changes = value as Record<string, unknown>
+  return Object.keys(changes).every(key => ['curiosity', 'creativity', 'kindness', 'humor'].includes(key))
+    && Object.values(changes).every(change => (
+      typeof change === 'number'
+      && Number.isFinite(change)
+      && change >= -1
+      && change <= 1
+    ))
+}
+
+function isCompanionReflection(value: unknown): value is CompanionState['reflections'][number] {
+  if (!value || typeof value !== 'object')
+    return false
+  const reflection = value as Partial<CompanionState['reflections'][number]>
+  return typeof reflection.id === 'string'
+    && Number.isFinite(reflection.createdAt)
+    && Number.isFinite(reflection.interactionCount)
+    && Array.isArray(reflection.learned)
+    && reflection.learned.every(item => typeof item === 'string')
+    && isCompanionPersonalityChanges(reflection.personalityChanges)
+    && typeof reflection.summary === 'string'
+}
+
+function isCompanionGrowthEvent(value: unknown): value is CompanionState['recentGrowthEvents'][number] {
+  if (!value || typeof value !== 'object')
+    return false
+  const event = value as {
+    id?: unknown
+    type?: unknown
+    occurredAt?: unknown
+    sentiment?: unknown
+    growthPointsDelta?: unknown
+    relationshipDelta?: unknown
+  }
+  const hasBaseFields = typeof event.id === 'string'
+    && typeof event.occurredAt === 'number'
+    && Number.isFinite(event.occurredAt)
+    && typeof event.growthPointsDelta === 'number'
+    && Number.isFinite(event.growthPointsDelta)
+    && typeof event.relationshipDelta === 'number'
+    && Number.isFinite(event.relationshipDelta)
+  if (!hasBaseFields)
+    return false
+  if (event.type === 'user-feedback')
+    return event.sentiment === 'positive' || event.sentiment === 'negative'
+  return event.type === 'interaction-completed' || event.type === 'important-memory-marked'
+}
+
+/** Returns whether a persisted value is a current companion state record. */
+export function isCompanionState(value: unknown): value is CompanionState {
   if (!hasStateFields(value) || value.schemaVersion !== 3)
     return false
 
   return typeof value.mood?.valence === 'number'
     && typeof value.mood?.arousal === 'number'
-    && typeof value.mood?.updatedAt === 'number'
-    && typeof value.growthPoints === 'number'
-    && typeof value.importantMemoryCount === 'number'
-    && typeof value.positiveFeedbackCount === 'number'
-    && typeof value.negativeFeedbackCount === 'number'
+    && value.mood.valence >= -1
+    && value.mood.valence <= 1
+    && value.mood.arousal >= 0
+    && value.mood.arousal <= 1
+    && Number.isFinite(value.mood.updatedAt)
+    && Number.isInteger(value.interactionCount)
+    && value.interactionCount >= 0
+    && Number.isInteger(value.growthPoints)
+    && value.growthPoints >= 0
+    && Number.isInteger(value.importantMemoryCount)
+    && value.importantMemoryCount >= 0
+    && Number.isInteger(value.positiveFeedbackCount)
+    && value.positiveFeedbackCount >= 0
+    && Number.isInteger(value.negativeFeedbackCount)
+    && value.negativeFeedbackCount >= 0
     && Array.isArray(value.processedGrowthEventIds)
+    && value.processedGrowthEventIds.every(eventId => typeof eventId === 'string')
     && Array.isArray(value.recentGrowthEvents)
+    && value.recentGrowthEvents.every(isCompanionGrowthEvent)
+    && Number.isFinite(value.relationshipScore)
+    && value.relationshipScore >= 0
+    && value.relationshipScore <= 100
+    && ['seed', 'child', 'companion', 'independent'].includes(value.growthStage)
+    && isCompanionPersonality(value.personality)
+    && Number.isInteger(value.lastReflectedInteractionCount)
+    && value.lastReflectedInteractionCount >= 0
+    && value.reflections.every(isCompanionReflection)
 }
 
 function isCompanionStateV1(value: unknown): value is CompanionStateV1 {

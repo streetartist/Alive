@@ -26,6 +26,7 @@ export const usePersonalWorldStore = defineStore('personal-world', () => {
   const projects = shallowRef<Record<string, PersonalWorldProject[]>>({})
   const pendingLoads = new Map<string, Promise<PersonalWorldEntry[]>>()
   const pendingProjectLoads = new Map<string, Promise<PersonalWorldProject[]>>()
+  const scopeRevisions = new Map<string, number>()
 
   function getEntries(scope: MemoryScope) {
     return entries.value[scopeKey(scope)] ?? []
@@ -69,7 +70,12 @@ export const usePersonalWorldStore = defineStore('personal-world', () => {
     if (existingLoad)
       return await existingLoad
 
-    const load = refreshEntries(scope)
+    const revision = scopeRevisions.get(key) ?? 0
+    const load = personalWorldService.list(scope).then(nextEntries => (
+      (scopeRevisions.get(key) ?? 0) === revision
+        ? cacheEntries(scope, nextEntries)
+        : nextEntries
+    ))
     pendingLoads.set(key, load)
     try {
       return await load
@@ -90,7 +96,12 @@ export const usePersonalWorldStore = defineStore('personal-world', () => {
     if (existingLoad)
       return await existingLoad
 
-    const load = refreshProjects(scope)
+    const revision = scopeRevisions.get(key) ?? 0
+    const load = personalWorldService.listProjects(scope).then(nextProjects => (
+      (scopeRevisions.get(key) ?? 0) === revision
+        ? cacheProjects(scope, nextProjects)
+        : nextProjects
+    ))
     pendingProjectLoads.set(key, load)
     try {
       return await load
@@ -142,7 +153,15 @@ export const usePersonalWorldStore = defineStore('personal-world', () => {
 
   async function clearScope(scope: MemoryScope) {
     await personalWorldService.clearScope(scope)
+    invalidateScope(scope)
+  }
+
+  /** Drops one in-memory scope without changing its persisted Personal World. */
+  function invalidateScope(scope: MemoryScope) {
     const key = scopeKey(scope)
+    scopeRevisions.set(key, (scopeRevisions.get(key) ?? 0) + 1)
+    pendingLoads.delete(key)
+    pendingProjectLoads.delete(key)
     const { [key]: _removed, ...remaining } = entries.value
     entries.value = remaining
     const { [key]: _removedProjects, ...remainingProjects } = projects.value
@@ -168,6 +187,7 @@ export const usePersonalWorldStore = defineStore('personal-world', () => {
     projects.value = {}
     pendingLoads.clear()
     pendingProjectLoads.clear()
+    scopeRevisions.clear()
   }
 
   return {
@@ -183,6 +203,7 @@ export const usePersonalWorldStore = defineStore('personal-world', () => {
     removeProject,
     captureReflection,
     saveFavorite,
+    invalidateScope,
     clearScope,
     clearOwner,
     resetState,

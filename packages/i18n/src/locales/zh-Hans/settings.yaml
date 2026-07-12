@@ -457,6 +457,33 @@ pages:
         placeholder: 例如：耐心而好奇
       reset: 重置修改
       save: 保存身份
+    portability:
+      title: 伙伴数据
+      description: 备份或恢复由当前用户与 {name} 共同拥有的本地关系数据。
+      exclusions: 备份不包含角色卡、聊天记录、全局设置和图片文件；创意项目只保留对现有图片的引用。
+      actions:
+        export: 导出备份
+        restore: 恢复备份
+        clear: 清除当前伙伴
+      restore:
+        label: 从 JSON 备份恢复
+        placeholder: 选择伙伴备份文件
+        description: 恢复会完整替换当前伙伴作用域；属于其他账户或角色的备份将被拒绝。
+      clear:
+        title: 重新开始这段伙伴关系
+        description: 清除当前用户与 {name} 的身份、关系成长、记忆、反思和个人世界。角色卡与图片库保持不变。
+      confirm:
+        restore: 替换当前数据
+        clear: 确认清除伙伴数据
+      status:
+        exported: 伙伴备份已导出。
+        imported: '备份已恢复：{memories} 条记忆、{entries} 条世界记录和 {projects} 个项目。'
+        cleared: 已清除 {name} 的伙伴数据。
+      errors:
+        title: 伙伴数据操作失败
+        export: 导出伙伴数据失败
+        import: 恢复伙伴数据失败
+        clear: 清除伙伴数据失败
     life:
       title: 桌面生活
       description: 让 AIRI 在本地呈现克制的生活行为，不创建聊天消息，也不打断正在进行的对话。
