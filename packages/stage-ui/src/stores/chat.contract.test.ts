@@ -46,12 +46,17 @@ const createMinecraftContextMock = vi.fn()
 const persistSessionMessagesMock = vi.fn()
 const forkSessionMock = vi.fn()
 const ensureSessionMock = vi.fn()
+const rememberTurnMock = vi.fn()
+const recordCompletedInteractionMock = vi.fn()
+const runArtistTaskMock = vi.fn()
 
 const activeSessionIdRef = ref('session-1')
 const activeProviderRef = ref('mock-provider')
 const activeModelRef = ref('gpt-test')
 const streamingMessageRef = ref<any>({ role: 'assistant', content: '', slices: [], tool_results: [] })
 const sessionMessages: Record<string, any[]> = {}
+const sessionMetas: Record<string, any> = {}
+let activeCardMock: any
 let currentGeneration = 1
 
 vi.mock('pinia', async () => {
@@ -102,6 +107,7 @@ vi.mock('./chat/session-store', () => ({
   useChatSessionStore: () => ({
     activeSessionId: activeSessionIdRef,
     sessionMessages,
+    sessionMetas,
     ensureSession: (sessionId: string) => {
       ensureSessionMock(sessionId)
       sessionMessages[sessionId] ??= [{ role: 'system', content: 'system prompt', createdAt: 1, id: 'system' }]
@@ -147,13 +153,34 @@ vi.mock('./modules/consciousness', () => ({
 
 vi.mock('./modules/airi-card', () => ({
   useAiriCardStore: () => ({
-    activeCard: undefined,
+    get activeCard() {
+      return activeCardMock
+    },
   }),
 }))
 
 vi.mock('./modules/artistry-autonomous', () => ({
   useAutonomousArtistryStore: () => ({
-    runArtistTask: vi.fn(),
+    runArtistTask: runArtistTaskMock,
+  }),
+}))
+
+vi.mock('./modules/companion', () => ({
+  useCompanionStore: () => ({
+    loadState: vi.fn().mockResolvedValue(undefined),
+    loadProfile: vi.fn().mockResolvedValue(undefined),
+    promptSupplement: vi.fn(() => ''),
+    recordCompletedInteraction: recordCompletedInteractionMock,
+  }),
+}))
+
+vi.mock('./modules/memory', () => ({
+  useMemoryStore: () => ({
+    backendId: 'test-memory',
+    recallLimit: 5,
+    promptCharacterBudget: 3000,
+    recall: vi.fn().mockResolvedValue([]),
+    rememberTurn: rememberTurnMock,
   }),
 }))
 
@@ -175,6 +202,28 @@ describe('chat orchestrator contract', () => {
     persistSessionMessagesMock.mockReset()
     forkSessionMock.mockReset()
     ensureSessionMock.mockReset()
+    rememberTurnMock.mockReset()
+    recordCompletedInteractionMock.mockReset()
+    runArtistTaskMock.mockReset()
+    recordCompletedInteractionMock.mockResolvedValue(undefined)
+    rememberTurnMock.mockImplementation(async input => ({
+      schemaVersion: 2,
+      id: `memory:${input.idempotencyKey}`,
+      scope: input.scope,
+      kind: 'experience',
+      importance: 0.5,
+      emotionalWeight: 0,
+      content: `User: ${input.user.text}\nAIRI: ${input.assistant.text}`,
+      source: {
+        type: 'chat-turn',
+        sessionId: input.sessionId,
+        turnId: input.idempotencyKey,
+        messageIds: [input.user.id, input.assistant.id],
+      },
+      createdAt: 1,
+      updatedAt: 1,
+      accessCount: 0,
+    }))
     ioTracerMocks.activeTurnSpan.value = undefined
     ioTracerMocks.spans.length = 0
     ioTracerMocks.startSpanMock.mockClear()
@@ -182,12 +231,74 @@ describe('chat orchestrator contract', () => {
     activeProviderRef.value = 'mock-provider'
     streamingMessageRef.value = { role: 'assistant', content: '', slices: [], tool_results: [] }
     currentGeneration = 1
+    activeCardMock = undefined
 
     for (const key of Object.keys(sessionMessages)) {
       delete sessionMessages[key]
     }
+    for (const key of Object.keys(sessionMetas)) {
+      delete sessionMetas[key]
+    }
 
     sessionMessages['session-1'] = [{ role: 'system', content: 'system prompt', createdAt: 1, id: 'system' }]
+    sessionMetas['session-1'] = {
+      id: 'session-1',
+      userId: 'owner-1',
+      characterId: 'character-1',
+    }
+  })
+
+  it('records companion interaction only after durable memory accepts the turn', async () => {
+    llmStreamMock.mockImplementation(async (_model: string, _chatProvider: ChatProvider, _messages: Message[], options: any) => {
+      await options.onStreamEvent({ type: 'text-delta', text: 'durable reply' })
+      await options.onStreamEvent({ type: 'finish', finishReason: 'stop' })
+    })
+
+    const store = useChatOrchestratorStore()
+    await store.ingest('durable user turn', {
+      model: 'gpt-test',
+      chatProvider: provider,
+    })
+
+    expect(rememberTurnMock).toHaveBeenCalledTimes(1)
+    expect(recordCompletedInteractionMock).toHaveBeenCalledTimes(1)
+    expect(recordCompletedInteractionMock).toHaveBeenCalledWith(
+      { ownerId: 'owner-1', characterId: 'character-1' },
+      expect.stringContaining('memory:'),
+    )
+    expect(rememberTurnMock.mock.invocationCallOrder[0]).toBeLessThan(
+      recordCompletedInteractionMock.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('keeps assistant artistry independent when durable memory declines the turn', async () => {
+    rememberTurnMock.mockResolvedValueOnce(undefined)
+    activeCardMock = {
+      extensions: {
+        airi: {
+          modules: {
+            artistry: {
+              autonomousEnabled: true,
+              autonomousTarget: 'assistant',
+            },
+          },
+        },
+      },
+    }
+    llmStreamMock.mockImplementation(async (_model: string, _chatProvider: ChatProvider, _messages: Message[], options: any) => {
+      await options.onStreamEvent({ type: 'text-delta', text: 'artistry reply' })
+      await options.onStreamEvent({ type: 'finish', finishReason: 'stop' })
+    })
+
+    const store = useChatOrchestratorStore()
+    await store.ingest('declined memory turn', {
+      model: 'gpt-test',
+      chatProvider: provider,
+    })
+
+    expect(recordCompletedInteractionMock).not.toHaveBeenCalled()
+    expect(runArtistTaskMock).toHaveBeenCalledTimes(1)
+    expect(runArtistTaskMock).toHaveBeenCalledWith('artistry reply', expect.any(Array))
   })
 
   it('emits second turn analytics from chat sends', async () => {

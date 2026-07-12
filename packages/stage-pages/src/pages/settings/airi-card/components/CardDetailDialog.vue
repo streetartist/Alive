@@ -263,7 +263,7 @@ function requestDeleteConfirmation(message: string): boolean {
 
 async function handleDeleteEntry(id: string) {
   if (requestDeleteConfirmation('Are you sure you want to delete this image from the journal?')) {
-    await backgroundStore.removeBackground(id)
+    await backgroundStore.removeBackground(id, props.cardId)
   }
 }
 
@@ -278,7 +278,7 @@ async function handleRefreshGallery() {
 }
 
 async function handleDownloadEntry(id: string, title: string) {
-  const url = backgroundStore.getBackgroundUrl(id)
+  const url = backgroundStore.getBackgroundUrl(id, props.cardId)
   if (!url)
     return
 
@@ -639,7 +639,7 @@ function getModuleDisplayValue(value: string | undefined, defaultValue: string |
                   :class="{ 'ring-2 ring-primary-500 border-primary-500': activeBackgroundId === entry.id }"
                 >
                   <img
-                    :src="backgroundStore.getBackgroundUrl(entry.id) ?? undefined"
+                    :src="backgroundStore.getBackgroundUrl(entry.id, props.cardId) ?? undefined"
                     class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
                     loading="lazy"
                   >

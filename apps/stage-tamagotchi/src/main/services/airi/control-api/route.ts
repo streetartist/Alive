@@ -51,6 +51,10 @@ export interface ControlApiServerAddressSnapshot {
 
 export interface ControlApiRendererClient {
   getStatus: () => Promise<unknown>
+  aliveGetProfile: () => Promise<unknown>
+  aliveGetState: () => Promise<unknown>
+  aliveListMemory: () => Promise<unknown>
+  aliveReflect: () => Promise<unknown>
   chatSend: (payload: ControlApiChatSendRequest) => Promise<void>
   chatSpotlight: (payload: ControlApiChatSpotlightRequest) => Promise<unknown>
   chatRetry: (payload: ControlApiChatRetryRequest) => Promise<void>
@@ -641,6 +645,7 @@ function capabilities() {
       healthEndpointRequiresAuth: false,
     },
     surfaces: {
+      alive: ['profile', 'state', 'memory', 'reflection'],
       chat: ['send', 'spotlight', 'interruptQueued', 'retry', 'cleanup', 'deleteMessage', 'sessions', 'messages'],
       providers: ['list', 'setActive', 'models'],
       speech: ['synthesize'],
@@ -703,6 +708,18 @@ export function createControlApiApp(options: ControlApiRouteOptions) {
       'X-Accel-Buffering': 'no',
     })
     return new Response(createControlApiSseStream(options.events), { headers })
+  }))
+
+  app.get('/v1/alive/profile', route(options, () => options.renderer.aliveGetProfile()))
+
+  app.get('/v1/alive/state', route(options, () => options.renderer.aliveGetState()))
+
+  app.get('/v1/alive/memory', route(options, () => options.renderer.aliveListMemory()))
+
+  app.post('/v1/alive/reflection', route(options, async () => {
+    const result = await options.renderer.aliveReflect()
+    publishOperation(options, 'alive.reflection')
+    return result
   }))
 
   app.post('/v1/chat/send', route(options, async (event) => {

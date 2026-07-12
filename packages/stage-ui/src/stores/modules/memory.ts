@@ -1,4 +1,4 @@
-import type { MemoryCompletedTurn, MemoryRecallRequest, MemoryScope } from '@proj-airi/memory'
+import type { MemoryAnnotation, MemoryCompletedTurn, MemoryMilestoneInput, MemoryRecallRequest, MemoryScope } from '@proj-airi/memory'
 
 import { useLocalStorageManualReset } from '@proj-airi/stage-shared/composables'
 import { defineStore } from 'pinia'
@@ -38,12 +38,22 @@ export const useMemoryStore = defineStore('memory', () => {
     return await localMemoryBackend.rememberTurn(input)
   }
 
+  async function rememberMilestone(input: MemoryMilestoneInput) {
+    if (!enabled.value)
+      return undefined
+    return await localMemoryBackend.rememberMilestone(input)
+  }
+
   async function listMemories(scope: MemoryScope) {
     return await localMemoryBackend.list({ scope, limit: 500 })
   }
 
   async function forgetMemory(scope: MemoryScope, id: string) {
     await localMemoryBackend.remove({ scope, id })
+  }
+
+  async function annotateMemory(scope: MemoryScope, id: string, annotation: MemoryAnnotation) {
+    return await localMemoryBackend.annotate({ scope, id, annotation })
   }
 
   async function clearMemories(scope: MemoryScope) {
@@ -68,7 +78,9 @@ export const useMemoryStore = defineStore('memory', () => {
     backendId,
     recall,
     rememberTurn,
+    rememberMilestone,
     listMemories,
+    annotateMemory,
     forgetMemory,
     clearMemories,
     clearOwner,

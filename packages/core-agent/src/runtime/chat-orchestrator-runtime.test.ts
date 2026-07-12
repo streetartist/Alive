@@ -24,10 +24,12 @@ function createMemoryMatch(overrides: Partial<MemoryRecord> = {}): MemoryRecallM
   return {
     score: 0.9,
     record: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: 'memory-1',
       scope: memoryScope,
-      kind: 'episodic',
+      kind: 'experience',
+      importance: 0.5,
+      emotionalWeight: 0,
       content: 'The user likes jasmine tea.',
       source: {
         type: 'chat-turn',
@@ -70,6 +72,7 @@ function createHarness(options: HarnessOptions = {}) {
   const assistantAppended: unknown[] = []
   const userTurns: unknown[] = []
   const assistantTurns: unknown[] = []
+  const durableTurns: unknown[] = []
   const stateChanges: unknown[] = []
   const telemetry = {
     chatActivationStarted: [] as unknown[],
@@ -95,6 +98,12 @@ function createHarness(options: HarnessOptions = {}) {
     'session-1': 1,
     'session-2': 1,
   }
+  const assistantTurnReady = vi.fn((event) => {
+    assistantTurns.push(event)
+  })
+  const durableTurnRemembered = vi.fn((event) => {
+    durableTurns.push(event)
+  })
 
   const runtime = createChatOrchestratorRuntime({
     session: {
@@ -133,7 +142,8 @@ function createHarness(options: HarnessOptions = {}) {
     onUserMessageAppended: event => userAppended.push(event),
     onAssistantMessageAppended: event => assistantAppended.push(event),
     onUserTurnReady: event => userTurns.push(event),
-    onAssistantTurnReady: event => assistantTurns.push(event),
+    onAssistantTurnReady: assistantTurnReady,
+    onDurableTurnRemembered: durableTurnRemembered,
     onStateChange: state => stateChanges.push(state),
     onChatActivationStarted: event => telemetry.chatActivationStarted.push(event),
     onChatActivationSucceeded: event => telemetry.chatActivationSucceeded.push(event),
@@ -147,10 +157,13 @@ function createHarness(options: HarnessOptions = {}) {
 
   return {
     assistantAppended,
+    assistantTurnReady,
     assistantTurns,
     contextSnapshot,
     foregroundPatches,
     foregroundResets,
+    durableTurnRemembered,
+    durableTurns,
     generation: {
       set: (next: number, sessionId = 'session-1') => {
         generations[sessionId] = next
@@ -414,6 +427,7 @@ describe('createChatOrchestratorRuntime', () => {
     })
 
     expect(rememberTurn).toHaveBeenCalledTimes(1)
+    expect(harness.durableTurnRemembered).not.toHaveBeenCalled()
     expect(harness.sessionMessages['session-1']?.at(-1)).toMatchObject({
       role: 'assistant',
       content: 'assistant reply',
@@ -428,6 +442,77 @@ describe('createChatOrchestratorRuntime', () => {
         status: 'failed',
       }),
     }))
+  })
+
+  it('emits one durable-turn event after memory accepts the completed turn', async () => {
+    const rememberedRecord = createMemoryMatch().record
+    const order: string[] = []
+    const recall = vi.fn<ChatOrchestratorMemoryPort['recall']>().mockResolvedValue([])
+    const rememberTurn = vi.fn<ChatOrchestratorMemoryPort['rememberTurn']>().mockImplementation(async () => {
+      order.push('remember')
+      return rememberedRecord
+    })
+    const harness = createHarness({
+      memory: {
+        id: 'test-memory',
+        recall,
+        rememberTurn,
+      },
+      memoryScope: () => memoryScope,
+    })
+    harness.durableTurnRemembered.mockImplementationOnce((event) => {
+      order.push('durable-turn')
+      harness.durableTurns.push(event)
+    })
+    harness.assistantTurnReady.mockImplementationOnce((event) => {
+      order.push('assistant-turn')
+      harness.assistantTurns.push(event)
+    })
+
+    await harness.runtime.ingest('remember this turn', {
+      model: 'gpt-test',
+      chatProvider: provider,
+    })
+
+    expect(harness.durableTurnRemembered).toHaveBeenCalledTimes(1)
+    expect(harness.durableTurns).toEqual([{
+      sessionId: 'session-1',
+      scope: memoryScope,
+      user: {
+        id: 'user-id',
+        text: 'remember this turn',
+        createdAt: new Date(2026, 3, 25, 18, 47).getTime(),
+      },
+      assistant: {
+        id: 'assistant-id',
+        text: 'assistant reply',
+        createdAt: new Date(2026, 3, 25, 18, 47).getTime(),
+      },
+      memoryRecord: rememberedRecord,
+      messageText: 'assistant reply',
+    }])
+    expect(order).toEqual(['remember', 'durable-turn', 'assistant-turn'])
+  })
+
+  it('does not emit a durable-turn event when memory declines the completed turn', async () => {
+    const recall = vi.fn<ChatOrchestratorMemoryPort['recall']>().mockResolvedValue([])
+    const rememberTurn = vi.fn<ChatOrchestratorMemoryPort['rememberTurn']>().mockResolvedValue(undefined)
+    const harness = createHarness({
+      memory: {
+        id: 'test-memory',
+        recall,
+        rememberTurn,
+      },
+      memoryScope: () => memoryScope,
+    })
+
+    await harness.runtime.ingest('memory may decline this', {
+      model: 'gpt-test',
+      chatProvider: provider,
+    })
+
+    expect(rememberTurn).toHaveBeenCalledTimes(1)
+    expect(harness.durableTurnRemembered).not.toHaveBeenCalled()
   })
 
   it('scopes memory to the target session and remembers persisted IDs with fresh history', async () => {
@@ -491,6 +576,7 @@ describe('createChatOrchestratorRuntime', () => {
     ])
     expect(harness.assistantTurns).toEqual([
       {
+        sessionId: 'session-2',
         messageText: 'assistant reply',
         sessionMessages: expect.arrayContaining([
           expect.objectContaining({ role: 'user', id: 'user-id' }),
@@ -522,10 +608,35 @@ describe('createChatOrchestratorRuntime', () => {
 
     expect(recall).toHaveBeenCalledTimes(1)
     expect(rememberTurn).not.toHaveBeenCalled()
+    expect(harness.durableTurnRemembered).not.toHaveBeenCalled()
     expect(harness.sessionMessages['session-1']?.map(message => message.role)).toEqual([
       'system',
       'user',
     ])
+  })
+
+  it('does not emit a durable-turn event for an empty assistant output', async () => {
+    const recall = vi.fn<ChatOrchestratorMemoryPort['recall']>().mockResolvedValue([])
+    const rememberTurn = vi.fn<ChatOrchestratorMemoryPort['rememberTurn']>().mockResolvedValue(createMemoryMatch().record)
+    const harness = createHarness({
+      memory: {
+        id: 'test-memory',
+        recall,
+        rememberTurn,
+      },
+      memoryScope: () => memoryScope,
+    })
+    harness.stream.mockImplementationOnce(async (_model, _chatProvider, _messages, options) => {
+      await options?.onStreamEvent?.({ type: 'finish', finishReason: 'stop' })
+    })
+
+    await harness.runtime.ingest('empty assistant output', {
+      model: 'gpt-test',
+      chatProvider: provider,
+    })
+
+    expect(rememberTurn).not.toHaveBeenCalled()
+    expect(harness.durableTurnRemembered).not.toHaveBeenCalled()
   })
 
   /**

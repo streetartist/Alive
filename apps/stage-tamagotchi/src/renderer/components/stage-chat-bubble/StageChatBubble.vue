@@ -5,11 +5,15 @@ import type { StageChatBubbleAnchorBounds, StageChatBubbleStoredOffset } from '.
 
 import { useChatSessionStore } from '@proj-airi/stage-ui/stores/chat/session-store'
 import { useChatStreamStore } from '@proj-airi/stage-ui/stores/chat/stream-store'
+import { useCompanionStore } from '@proj-airi/stage-ui/stores/modules/companion'
+import { useCompanionLifeStore } from '@proj-airi/stage-ui/stores/modules/companion-life'
 import { useElementSize, useEventListener, useLocalStorage, useWindowSize } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, shallowRef, useTemplateRef, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { useControlsIslandStore } from '../../stores/controls-island'
+import { resolveStageChatBubbleFeedbackTarget } from './stageChatBubbleFeedback'
 import { resolveStageChatBubbleDragOffset, resolveStageChatBubblePlacement } from './stageChatBubblePlacement'
 
 const props = defineProps<{
@@ -33,16 +37,21 @@ interface BubbleDragState {
 
 const chatSessionStore = useChatSessionStore()
 const chatStreamStore = useChatStreamStore()
+const companionStore = useCompanionStore()
+const companionLifeStore = useCompanionLifeStore()
 const controlsIslandStore = useControlsIslandStore()
 const bubbleElementRef = useTemplateRef<HTMLDivElement>('bubble')
 const { width: windowWidth, height: windowHeight } = useWindowSize()
 const { width: bubbleWidth, height: bubbleHeight } = useElementSize(bubbleElementRef)
 
-const { messages } = storeToRefs(chatSessionStore)
+const { t } = useI18n()
+const { activeSessionId, messages, sessionMetas } = storeToRefs(chatSessionStore)
 const { streamingMessage } = storeToRefs(chatStreamStore)
+const { message: companionLifeMessage } = storeToRefs(companionLifeStore)
 const { chatBubbleEnabled } = storeToRefs(controlsIslandStore)
 const chatBubbleOffset = useLocalStorage<StageChatBubbleStoredOffset>('stage-chat-bubble/manual-offset', { x: 0, y: 0 })
 const dragState = shallowRef<BubbleDragState | null>(null)
+const feedbackPendingMessageId = shallowRef<string>()
 const dragging = computed(() => dragState.value !== null)
 
 const streamingText = computed(() => {
@@ -51,18 +60,35 @@ const streamingText = computed(() => {
 
   return normalizeBubbleText(resolveAssistantText(streamingMessage.value))
 })
-const latestAssistantText = computed(() => {
+const latestAssistantMessage = computed(() => {
   for (let index = messages.value.length - 1; index >= 0; index -= 1) {
     const message = messages.value[index]
     if (isAssistantMessage(message))
-      return normalizeBubbleText(resolveAssistantText(message))
+      return message
   }
 
-  return ''
+  return undefined
 })
-const fullText = computed(() => streamingText.value || latestAssistantText.value)
+const latestAssistantText = computed(() => latestAssistantMessage.value
+  ? normalizeBubbleText(resolveAssistantText(latestAssistantMessage.value))
+  : '')
+const fullText = computed(() => streamingText.value || companionLifeMessage.value || latestAssistantText.value)
 const displayText = computed(() => truncateBubbleText(fullText.value))
 const visible = computed(() => chatBubbleEnabled.value && displayText.value.length > 0)
+const feedbackTarget = computed(() => resolveStageChatBubbleFeedbackTarget({
+  messages: messages.value,
+  activeSessionId: activeSessionId.value,
+  sessionMeta: sessionMetas.value[activeSessionId.value],
+  streamingText: streamingText.value,
+  companionLifeMessage: companionLifeMessage.value,
+  resolveAssistantText: message => normalizeBubbleText(resolveAssistantText(message)),
+}))
+const feedbackSentiment = computed(() => {
+  const target = feedbackTarget.value
+  return target
+    ? companionStore.feedbackFor(target.scope, `${target.sessionId}:${target.messageId}`)
+    : undefined
+})
 const bubblePlacement = computed(() => {
   const placement = resolveStageChatBubblePlacement({
     anchorBounds: props.anchorBounds,
@@ -151,6 +177,28 @@ function truncateBubbleText(text: string): string {
   return `${text.slice(0, MAX_BUBBLE_TEXT_LENGTH).trimEnd()}...`
 }
 
+async function submitFeedback(sentiment: 'positive' | 'negative') {
+  const target = feedbackTarget.value
+  if (!target || feedbackSentiment.value || feedbackPendingMessageId.value)
+    return
+
+  feedbackPendingMessageId.value = target.messageId
+  try {
+    await companionStore.recordFeedback(
+      { ...target.scope },
+      `${target.sessionId}:${target.messageId}`,
+      sentiment,
+    )
+  }
+  catch (error) {
+    console.warn('[companion] Failed to save response feedback', error)
+  }
+  finally {
+    if (feedbackPendingMessageId.value === target.messageId)
+      feedbackPendingMessageId.value = undefined
+  }
+}
+
 function handlePointerDown(event: PointerEvent) {
   if (event.button !== 0)
     return
@@ -227,13 +275,13 @@ defineExpose({
     <div
       v-if="visible"
       ref="bubble"
-      aria-live="polite"
+      :aria-label="t('settings.pages.companion.feedbackActions.group')"
       :class="[
         'stage-chat-bubble',
         'pointer-events-auto absolute z-40 select-none',
         dragging ? 'cursor-grabbing' : 'cursor-grab',
       ]"
-      role="status"
+      role="group"
       :data-side="bubblePlacement.side"
       :style="bubblePlacement.style"
       @pointerdown="handlePointerDown"
@@ -252,6 +300,7 @@ defineExpose({
         ]"
       >
         <p
+          aria-live="polite"
           :class="[
             'm-0',
             'break-words text-sm leading-relaxed',
@@ -261,6 +310,45 @@ defineExpose({
         >
           {{ displayText }}
         </p>
+        <div
+          v-if="feedbackTarget"
+          :class="['mt-2 flex items-center justify-end gap-1 border-t border-neutral-200/60 pt-1.5 dark:border-neutral-800/60']"
+        >
+          <button
+            type="button"
+            :aria-label="t('settings.pages.companion.feedbackActions.positive')"
+            :aria-pressed="feedbackSentiment === 'positive'"
+            :disabled="feedbackSentiment !== undefined || feedbackPendingMessageId !== undefined"
+            :class="[
+              'flex size-7 items-center justify-center rounded-full transition-colors',
+              feedbackSentiment === 'positive'
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200',
+              'disabled:cursor-default disabled:opacity-70',
+            ]"
+            @pointerdown.stop
+            @click.stop="submitFeedback('positive')"
+          >
+            <span aria-hidden="true" :class="['i-lucide:thumbs-up text-sm']" />
+          </button>
+          <button
+            type="button"
+            :aria-label="t('settings.pages.companion.feedbackActions.negative')"
+            :aria-pressed="feedbackSentiment === 'negative'"
+            :disabled="feedbackSentiment !== undefined || feedbackPendingMessageId !== undefined"
+            :class="[
+              'flex size-7 items-center justify-center rounded-full transition-colors',
+              feedbackSentiment === 'negative'
+                ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300'
+                : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200',
+              'disabled:cursor-default disabled:opacity-70',
+            ]"
+            @pointerdown.stop
+            @click.stop="submitFeedback('negative')"
+          >
+            <span aria-hidden="true" :class="['i-lucide:thumbs-down text-sm']" />
+          </button>
+        </div>
         <div class="stage-chat-bubble-tail" />
       </div>
     </div>

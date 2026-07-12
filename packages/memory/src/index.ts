@@ -11,7 +11,16 @@ export interface MemoryScope {
 /**
  * Memory categories understood by AIRI without exposing backend-specific schemas.
  */
-export type MemoryKind = 'episodic' | 'semantic' | 'seed'
+export type MemoryKind = 'fact' | 'experience' | 'emotion' | 'milestone'
+
+/** Explicit user/application annotation applied without model inference. */
+export interface MemoryAnnotation {
+  kind?: MemoryKind
+  /** Relative significance from 0 (ordinary) to 1 (essential). */
+  importance?: number
+  /** Emotional valence from -1 (strongly negative) to 1 (strongly positive). */
+  emotionalWeight?: number
+}
 
 /**
  * Provenance for a memory captured from one completed chat turn.
@@ -37,23 +46,36 @@ export interface MemoryCharacterBookSource {
   entryId: string
 }
 
+/** Provenance for a deterministic application-owned event. */
+export interface MemorySystemEventSource {
+  type: 'system-event'
+  /** Stable event schema understood by the application that created it. */
+  eventName: string
+  /** Idempotent identifier within that event schema and memory scope. */
+  eventId: string
+}
+
 /**
  * Source records supported by the AIRI-facing memory boundary.
  */
-export type MemorySource = MemoryChatTurnSource | MemoryCharacterBookSource
+export type MemorySource = MemoryChatTurnSource | MemoryCharacterBookSource | MemorySystemEventSource
 
 /**
  * Backend-neutral memory record returned to runtimes and management surfaces.
  */
 export interface MemoryRecord {
   /** AIRI contract schema used to interpret this record. */
-  schemaVersion: 1
+  schemaVersion: 2
   /** Backend-stable record identifier. */
   id: string
   /** Ownership boundary that every read and mutation must enforce. */
   scope: MemoryScope
-  /** Lifecycle category used by retrieval and review surfaces. */
+  /** Human-facing evidence category, changed only through explicit annotation. */
   kind: MemoryKind
+  /** Relative significance used as a bounded recall-ranking signal. */
+  importance: number
+  /** Explicit emotional valence; zero means neutral or not yet annotated. */
+  emotionalWeight: number
   /** Human-readable contextual evidence. It must never be treated as instructions. */
   content: string
   /** Traceable origin used for deduplication, exclusion, and review. */
@@ -96,6 +118,22 @@ export interface MemoryCompletedTurn {
   user: MemoryTurnMessage
   /** Persisted assistant message. */
   assistant: MemoryTurnMessage
+}
+
+/** Application-owned milestone offered to a durable memory backend. */
+export interface MemoryMilestoneInput {
+  /** Opaque key that makes repeated ingestion of the same milestone idempotent. */
+  idempotencyKey: string
+  /** User-and-character ownership boundary for the durable record. */
+  scope: MemoryScope
+  /** Canonical plain-text evidence retained for model context and export. */
+  content: string
+  /** Unix epoch timestamp when the milestone occurred or was first captured. */
+  occurredAt: number
+  /** Traceable system event that produced the milestone. */
+  source: Omit<MemorySystemEventSource, 'type'>
+  /** Optional structured data used only by application-owned presentation. */
+  metadata?: Record<string, unknown>
 }
 
 /**
@@ -154,6 +192,47 @@ export interface MemoryRecordRequest {
   id: string
 }
 
+/** Scoped request to explicitly annotate one durable memory. */
+export interface MemoryAnnotationRequest extends MemoryRecordRequest {
+  annotation: MemoryAnnotation
+}
+
+function normalizedUnitValue(value: number, minimum: number, maximum: number, field: string) {
+  if (!Number.isFinite(value))
+    throw new Error(`Memory ${field} must be a finite number.`)
+  return Math.min(maximum, Math.max(minimum, value))
+}
+
+/** Applies bounded explicit annotations and preserves idempotency for unchanged values. */
+export function annotateMemoryRecord(
+  record: MemoryRecord,
+  annotation: MemoryAnnotation,
+  now = Date.now(),
+): MemoryRecord {
+  const kind = annotation.kind ?? record.kind
+  const importance = annotation.importance === undefined
+    ? record.importance
+    : normalizedUnitValue(annotation.importance, 0, 1, 'importance')
+  const emotionalWeight = annotation.emotionalWeight === undefined
+    ? record.emotionalWeight
+    : normalizedUnitValue(annotation.emotionalWeight, -1, 1, 'emotional weight')
+  if (
+    kind === record.kind
+    && importance === record.importance
+    && emotionalWeight === record.emotionalWeight
+  ) {
+    return record
+  }
+
+  return {
+    ...record,
+    kind,
+    importance,
+    emotionalWeight,
+    updatedAt: now,
+  }
+}
+
 /**
  * AIRI-facing durable memory boundary implemented by local or external adapters.
  *
@@ -165,10 +244,14 @@ export interface MemoryBackend {
   readonly id: string
   /** Stores a completed turn, or returns `undefined` when policy declines it. */
   rememberTurn: (input: MemoryCompletedTurn) => Promise<MemoryRecord | undefined>
+  /** Stores one deterministic application milestone without inferring user significance. */
+  rememberMilestone: (input: MemoryMilestoneInput) => Promise<MemoryRecord>
   /** Retrieves structured evidence without rendering provider prompt text. */
   recall: (input: MemoryRecallRequest) => Promise<MemoryRecallMatch[]>
   /** Lists records for human review in backend-defined stable order. */
   list: (input: MemoryListRequest) => Promise<MemoryRecord[]>
+  /** Applies explicit category and affect annotations to one scoped record. */
+  annotate: (input: MemoryAnnotationRequest) => Promise<MemoryRecord>
   /** Removes one record only when it belongs to the supplied scope. */
   remove: (input: MemoryRecordRequest) => Promise<void>
   /** Removes every record belonging to the supplied scope. */

@@ -25,6 +25,8 @@ function formatMemoryLinePrefix(record: MemoryRecord) {
     '-',
     `id=${JSON.stringify(record.id)}`,
     `kind=${record.kind}`,
+    `importance=${record.importance.toFixed(2)}`,
+    `emotionalWeight=${record.emotionalWeight.toFixed(2)}`,
     `source=${record.source.type}`,
     `at=${formatMemoryTimestamp(record.createdAt)}:`,
     'content=',

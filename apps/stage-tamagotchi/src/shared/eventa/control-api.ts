@@ -1,3 +1,12 @@
+import type {
+  CompanionGrowthStage,
+  CompanionIdentity,
+  CompanionMoodSnapshot,
+  CompanionPersonality,
+  CompanionReflection,
+  CompanionState,
+} from '@proj-airi/companion-core'
+import type { MemoryRecord, MemoryScope } from '@proj-airi/memory'
 import type { ChatHistoryItem } from '@proj-airi/stage-ui/types/chat'
 import type { ChatSessionMeta } from '@proj-airi/stage-ui/types/chat-session'
 
@@ -240,7 +249,46 @@ export interface ControlApiRuntimeStatus {
   providers: ControlApiProviderStatus
 }
 
+export interface ControlApiAliveIdentitySnapshot extends CompanionIdentity {
+  /** ISO timestamp for the beginning of this persistent user-character identity. */
+  birthday: string
+  /** Stable interests explicitly maintained for this companion identity. */
+  interests: string[]
+  /** Stable values explicitly maintained for this companion identity. */
+  values: string[]
+}
+
+export interface ControlApiAliveProfileSnapshot {
+  identity: ControlApiAliveIdentitySnapshot
+  personality: CompanionPersonality
+  growthStage: CompanionGrowthStage
+}
+
+export interface ControlApiAliveStateSnapshot {
+  profile: ControlApiAliveProfileSnapshot
+  state: CompanionState
+  /** Lazily decayed mood projection resolved when this snapshot was requested. */
+  mood: CompanionMoodSnapshot
+  lastMemory?: MemoryRecord
+}
+
+export interface ControlApiAliveMemorySnapshot {
+  scope: MemoryScope
+  records: MemoryRecord[]
+}
+
+export interface ControlApiAliveReflectionResult {
+  state: CompanionState
+  reflection?: CompanionReflection
+  mode: 'model' | 'local' | 'not-due'
+  fallbackReason?: string
+}
+
 export const electronControlApiGetStatus = defineInvokeEventa<ControlApiRuntimeStatus>('eventa:invoke:electron:control-api:status:get')
+export const electronControlApiAliveGetProfile = defineInvokeEventa<ControlApiAliveProfileSnapshot>('eventa:invoke:electron:control-api:alive:profile:get')
+export const electronControlApiAliveGetState = defineInvokeEventa<ControlApiAliveStateSnapshot>('eventa:invoke:electron:control-api:alive:state:get')
+export const electronControlApiAliveListMemory = defineInvokeEventa<ControlApiAliveMemorySnapshot>('eventa:invoke:electron:control-api:alive:memory:list')
+export const electronControlApiAliveReflect = defineInvokeEventa<ControlApiAliveReflectionResult>('eventa:invoke:electron:control-api:alive:reflection:run')
 export const electronControlApiChatSend = defineInvokeEventa<void, ControlApiChatSendRequest>('eventa:invoke:electron:control-api:chat:send')
 export const electronControlApiChatSpotlight = defineInvokeEventa<ControlApiChatSpotlightResult, ControlApiChatSpotlightRequest>('eventa:invoke:electron:control-api:chat:spotlight')
 export const electronControlApiChatRetry = defineInvokeEventa<void, ControlApiChatRetryRequest>('eventa:invoke:electron:control-api:chat:retry')

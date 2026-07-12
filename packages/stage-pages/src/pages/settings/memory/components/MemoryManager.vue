@@ -93,6 +93,11 @@ async function handleForget(record: MemoryRecord) {
   }
 }
 
+async function handleAnnotated(record: MemoryRecord) {
+  records.value = records.value.map(candidate => candidate.id === record.id ? record : candidate)
+  operationStatus.value = t('settings.pages.memory.feedback.annotated')
+}
+
 async function handleClear() {
   const requestedScope = { ...scope.value }
   clearing.value = true
@@ -154,6 +159,7 @@ watch([userId, activeCardId], () => {
       :actions-disabled="clearing"
       @retry="handleRefresh"
       @forget="handleForget"
+      @annotated="handleAnnotated"
     />
   </div>
 </template>

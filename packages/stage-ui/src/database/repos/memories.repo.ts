@@ -1,7 +1,8 @@
-import type { MemoryRecord, MemoryScope } from '@proj-airi/memory'
+import type { MemoryRecord, MemoryScope, MemorySource } from '@proj-airi/memory'
 import type { Storage, StorageValue } from 'unstorage'
 
 import { storage } from '../storage'
+import { getStorageKeysUnderPrefix } from '../storage-keys'
 
 const MEMORY_RECORDS_PREFIX = 'local:memory/v1'
 
@@ -26,16 +27,73 @@ function belongsToScope(record: MemoryRecord, scope: MemoryScope) {
     && record.scope.characterId === scope.characterId
 }
 
-function isMemoryRecord(value: unknown): value is MemoryRecord {
+type MemoryRecordV1 = Omit<MemoryRecord, 'emotionalWeight' | 'importance' | 'kind' | 'schemaVersion'> & {
+  schemaVersion: 1
+  kind: 'episodic' | 'semantic' | 'seed'
+}
+
+function hasMemorySource(value: unknown): value is MemorySource {
   if (!value || typeof value !== 'object')
     return false
 
-  const candidate = value as Partial<MemoryRecord>
-  return candidate.schemaVersion === 1
-    && typeof candidate.id === 'string'
+  const source = value as Partial<MemorySource>
+  if (source.type === 'chat-turn') {
+    return typeof source.sessionId === 'string'
+      && typeof source.turnId === 'string'
+      && Array.isArray(source.messageIds)
+      && source.messageIds.length === 2
+      && source.messageIds.every(messageId => typeof messageId === 'string')
+  }
+  if (source.type === 'character-book')
+    return typeof source.cardId === 'string' && typeof source.entryId === 'string'
+  if (source.type === 'system-event')
+    return typeof source.eventName === 'string' && typeof source.eventId === 'string'
+  return false
+}
+
+function hasMemoryRecordFields(value: unknown): value is MemoryRecord | MemoryRecordV1 {
+  if (!value || typeof value !== 'object')
+    return false
+
+  const candidate = value as Partial<MemoryRecord | MemoryRecordV1>
+  return typeof candidate.id === 'string'
     && typeof candidate.content === 'string'
     && typeof candidate.scope?.ownerId === 'string'
     && typeof candidate.scope?.characterId === 'string'
+    && hasMemorySource(candidate.source)
+    && Number.isFinite(candidate.createdAt)
+    && Number.isFinite(candidate.updatedAt)
+    && Number.isFinite(candidate.accessCount)
+}
+
+function migrateMemoryRecord(value: unknown): MemoryRecord | null {
+  if (!hasMemoryRecordFields(value))
+    return null
+
+  if (value.schemaVersion === 1) {
+    if (!['episodic', 'semantic', 'seed'].includes(value.kind))
+      return null
+    return {
+      ...value,
+      schemaVersion: 2,
+      kind: value.kind === 'episodic' ? 'experience' : 'fact',
+      importance: 0.5,
+      emotionalWeight: 0,
+    }
+  }
+
+  if (value.schemaVersion !== 2)
+    return null
+
+  return ['fact', 'experience', 'emotion', 'milestone'].includes(value.kind)
+    && Number.isFinite(value.importance)
+    && value.importance >= 0
+    && value.importance <= 1
+    && Number.isFinite(value.emotionalWeight)
+    && value.emotionalWeight >= -1
+    && value.emotionalWeight <= 1
+    ? value
+    : null
 }
 
 /**
@@ -63,11 +121,14 @@ export interface MemoryRepository {
 export function createMemoryRepository(memoryStorage: Storage<StorageValue>): MemoryRepository {
   async function readRecord(key: string) {
     const value = await memoryStorage.getItemRaw<unknown>(key)
-    return isMemoryRecord(value) ? value : null
+    const record = migrateMemoryRecord(value)
+    if (record && hasMemoryRecordFields(value) && value.schemaVersion === 1)
+      await memoryStorage.setItemRaw(key, record)
+    return record
   }
 
   async function removeKeys(prefix: string) {
-    const keys = await memoryStorage.getKeys(prefix)
+    const keys = await getStorageKeysUnderPrefix(memoryStorage, prefix)
     await Promise.all(keys.map(key => memoryStorage.removeItem(key)))
   }
 
@@ -82,7 +143,7 @@ export function createMemoryRepository(memoryStorage: Storage<StorageValue>): Me
     },
 
     async list(scope) {
-      const keys = await memoryStorage.getKeys(scopePrefix(scope))
+      const keys = await getStorageKeysUnderPrefix(memoryStorage, scopePrefix(scope))
       const records = await Promise.all(keys.map(readRecord))
 
       return records

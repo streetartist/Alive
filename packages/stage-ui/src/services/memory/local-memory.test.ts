@@ -39,10 +39,12 @@ function makeRecord(input: {
 }): MemoryRecord {
   const recordScope = input.scope ?? scope
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: input.id,
     scope: recordScope,
-    kind: 'episodic',
+    kind: 'experience',
+    importance: 0.5,
+    emotionalWeight: 0,
     content: input.content,
     source: {
       type: 'chat-turn',
@@ -73,7 +75,7 @@ describe('local memory backend', () => {
     })
   }
 
-  it('stores only one episodic record when a completed turn is retried', async () => {
+  it('stores only one experience record when a completed turn is retried', async () => {
     const backend = createBackend()
     const first = await backend.rememberTurn(makeTurn('one'))
     const retried = await backend.rememberTurn(makeTurn('one', {
@@ -87,6 +89,87 @@ describe('local memory backend', () => {
     expect(first).toEqual(retried)
     expect(await backend.list({ scope, limit: 500 })).toHaveLength(1)
     expect(first?.content).toBe('User: User message one\nAIRI: Assistant response one')
+    expect(first).toMatchObject({
+      schemaVersion: 2,
+      kind: 'experience',
+      importance: 0.5,
+      emotionalWeight: 0,
+    })
+  })
+
+  it('stores one neutral milestone for repeated application events', async () => {
+    const backend = createBackend()
+    const input = {
+      idempotencyKey: 'companion-growth-stage:child',
+      scope,
+      content: 'Relationship milestone: AIRI reached the child growth stage.',
+      occurredAt: 123,
+      source: {
+        eventName: 'companion-growth-stage',
+        eventId: 'child',
+      },
+      metadata: { companionGrowthStage: 'child' },
+    }
+
+    const first = await backend.rememberMilestone(input)
+    const repeated = await backend.rememberMilestone({
+      ...input,
+      content: 'A retry must not overwrite the original milestone.',
+    })
+
+    expect(repeated).toEqual(first)
+    expect(first).toMatchObject({
+      id: 'milestone:companion-growth-stage:child',
+      kind: 'milestone',
+      importance: 0.5,
+      emotionalWeight: 0,
+      createdAt: 123,
+      source: {
+        type: 'system-event',
+        eventName: 'companion-growth-stage',
+        eventId: 'child',
+      },
+      metadata: { companionGrowthStage: 'child' },
+    })
+    expect(await backend.list({ scope, limit: 500 })).toHaveLength(1)
+  })
+
+  it('applies only bounded explicit annotations and keeps repeated updates idempotent', async () => {
+    const backend = createBackend()
+    const record = await backend.rememberTurn(makeTurn('annotated'))
+    currentTime += 1
+    const annotated = await backend.annotate({
+      scope,
+      id: record!.id,
+      annotation: { kind: 'emotion', importance: 2, emotionalWeight: -2 },
+    })
+    currentTime += 1
+    const repeated = await backend.annotate({
+      scope,
+      id: record!.id,
+      annotation: { kind: 'emotion', importance: 1, emotionalWeight: -1 },
+    })
+
+    expect(annotated).toMatchObject({
+      kind: 'emotion',
+      importance: 1,
+      emotionalWeight: -1,
+      updatedAt: 60 * DAY_MS + 1,
+    })
+    expect(repeated).toBe(annotated)
+    expect(repeated.content).toBe(record?.content)
+    expect(repeated.source).toEqual(record?.source)
+  })
+
+  it('rejects annotation through another memory scope', async () => {
+    const backend = createBackend()
+    const record = await backend.rememberTurn(makeTurn('scoped'))
+
+    await expect(backend.annotate({
+      scope: { ownerId: scope.ownerId, characterId: 'other' },
+      id: record!.id,
+      annotation: { kind: 'milestone' },
+    })).rejects.toThrow('not found in this scope')
   })
 
   it('returns only lexically relevant memories and excludes current source messages', async () => {
@@ -173,6 +256,46 @@ describe('local memory backend', () => {
     expect(recalled.map(match => match.record.id)).toEqual(['a', 'b'])
   })
 
+  it('uses explicit importance and emotional intensity only to reorder relevant matches', async () => {
+    const backend = createBackend()
+    await repository.save({
+      ...makeRecord({ id: 'ordinary', content: 'Kyoto memory', createdAt: currentTime }),
+      importance: 0.5,
+      emotionalWeight: 0,
+    })
+    await repository.save({
+      ...makeRecord({ id: 'significant', content: 'Kyoto memory', createdAt: currentTime }),
+      importance: 1,
+      emotionalWeight: -1,
+    })
+    await repository.save({
+      ...makeRecord({ id: 'unrelated-important', content: 'A quiet coding afternoon', createdAt: currentTime }),
+      importance: 1,
+      emotionalWeight: 1,
+    })
+
+    const recalled = await backend.recall({ scope, sessionId: 'session-current', query: 'Kyoto', limit: 5 })
+
+    expect(recalled.map(match => match.record.id)).toEqual(['significant', 'ordinary'])
+  })
+
+  it('preserves annotation and access metadata when annotation overlaps recall', async () => {
+    const backend = createBackend()
+    await repository.save(makeRecord({ id: 'shared', content: 'Kyoto memory', createdAt: currentTime }))
+
+    await Promise.all([
+      backend.annotate({ scope, id: 'shared', annotation: { kind: 'milestone', importance: 1 } }),
+      backend.recall({ scope, sessionId: 'session-current', query: 'Kyoto', limit: 5 }),
+    ])
+
+    expect(await repository.get(scope, 'shared')).toMatchObject({
+      kind: 'milestone',
+      importance: 1,
+      accessCount: 1,
+      lastAccessedAt: currentTime,
+    })
+  })
+
   it('prunes the oldest records after the configured per-scope retention bound', async () => {
     const backend = createBackend(2)
 
@@ -185,5 +308,27 @@ describe('local memory backend', () => {
 
     const records = await backend.list({ scope, limit: 500 })
     expect(records.map(record => record.id)).toEqual(['turn:turn-three', 'turn:turn-two'])
+  })
+
+  it('retains milestone evidence while pruning older conversation records', async () => {
+    const backend = createBackend(2)
+    await backend.rememberMilestone({
+      idempotencyKey: 'companion-growth-stage:child',
+      scope,
+      content: 'Relationship milestone: AIRI reached the child growth stage.',
+      occurredAt: 1,
+      source: { eventName: 'companion-growth-stage', eventId: 'child' },
+    })
+
+    currentTime = 2
+    await backend.rememberTurn(makeTurn('two'))
+    currentTime = 3
+    await backend.rememberTurn(makeTurn('three'))
+
+    const records = await backend.list({ scope, limit: 500 })
+    expect(records.map(record => record.id)).toEqual([
+      'turn:turn-three',
+      'milestone:companion-growth-stage:child',
+    ])
   })
 })

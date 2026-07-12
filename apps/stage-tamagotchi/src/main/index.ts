@@ -52,6 +52,17 @@ import { setupSettingsWindowReusableFunc } from './windows/settings'
 import { setupSpotlightWindowManager } from './windows/spotlight'
 import { setupWidgetsWindowManager } from './windows/widgets'
 
+// NOTICE:
+// Electron may outlive the terminal or launcher that owns its stdout/stderr pipes.
+// Windows then reports EPIPE on the next log write, which must not terminate the app.
+// This guard can be removed if the logging stack stops writing to detached process streams.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (error) => {
+    if ((error as NodeJS.ErrnoException).code !== 'EPIPE')
+      throw error
+  })
+}
+
 // TODO: once we refactored eventa to support window-namespaced contexts,
 // we can remove the setMaxListeners call below since eventa will be able to dispatch and
 // manage events within eventa's context system.

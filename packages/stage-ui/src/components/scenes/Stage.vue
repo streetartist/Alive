@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { CompanionLifeDecision, CompanionLifeMessageCue, CompanionMoodSnapshot } from '@proj-airi/companion-core'
 import type { Live2DLipSync, Live2DLipSyncOptions } from '@proj-airi/model-driver-lipsync'
 import type { Profile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
 import type { Live2DModelLayoutBounds } from '@proj-airi/stage-ui-live2d'
@@ -21,11 +22,14 @@ import { Callout } from '@proj-airi/ui'
 import { useBroadcastChannel } from '@vueuse/core'
 import { generateSpeech } from '@xsai/generate-speech'
 import { storeToRefs } from 'pinia'
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { useSettingsLive2d } from '../../../../stage-ui-live2d/src/composables/live2d/live2d'
 import { useAnalytics } from '../../composables/use-analytics'
 import { useAuthProviderSync } from '../../composables/use-auth-provider-sync'
+import { useCompanionDailyReflection } from '../../composables/use-companion-daily-reflection'
+import { useCompanionLife } from '../../composables/use-companion-life'
 import { useIOTraceBridge } from '../../composables/use-io-trace-bridge'
 import { initIOTracer } from '../../composables/use-io-tracer'
 import { useSpeechPipelineAnalytics } from '../../composables/use-speech-pipeline-analytics'
@@ -39,11 +43,14 @@ import { useBackgroundStore } from '../../stores/background'
 import { useChatOrchestratorStore } from '../../stores/chat'
 import { useLlmStreamingControlStore } from '../../stores/llm-streaming-control'
 import { useAiriCardStore } from '../../stores/modules'
+import { useCompanionLifeStore } from '../../stores/modules/companion-life'
 import { useSpeechStore } from '../../stores/modules/speech'
 import { useProvidersStore } from '../../stores/providers'
 import { useSettings } from '../../stores/settings'
 import { useSpeechOutputControlStore } from '../../stores/speech-output-control'
 import { useSpeechRuntimeStore } from '../../stores/speech-runtime'
+import { resolveCompanionLifeEmotion } from '../../utils/companionLifePresentation'
+import { inferResponseEmotion, selectExpressionForEmotion } from '../../utils/response-performance'
 
 const props = withDefaults(defineProps<{
   cursorPosition?: { x: number, y: number }
@@ -59,6 +66,7 @@ const emit = defineEmits<{
 }>()
 
 const componentState = defineModel<'pending' | 'loading' | 'mounted'>('state', { default: 'pending' })
+const { t } = useI18n()
 
 const vrmViewerRef = ref<InstanceType<typeof ThreeScene>>()
 const live2dSceneRef = ref<InstanceType<typeof Live2DScene>>()
@@ -87,6 +95,8 @@ const {
   spineRenderScale,
 } = storeToRefs(settingsStore)
 const { mouthOpenSize, nowSpeaking } = storeToRefs(useSpeakingStore())
+const companionLifeStore = useCompanionLifeStore()
+const assistantTurnActive = shallowRef(false)
 const { audioContext } = useAudioContext()
 const currentAudioSource = ref<AudioBufferSourceNode>()
 const { latestStopRequest } = storeToRefs(useSpeechOutputControlStore())
@@ -183,7 +193,57 @@ const emotionsQueue = createQueue<EmotionPayload>({
   ],
 })
 
+const companionLifeBusy = computed(() => (
+  props.paused
+  || componentState.value !== 'mounted'
+  || assistantTurnActive.value
+  || nowSpeaking.value
+))
+useCompanionDailyReflection({ busy: companionLifeBusy })
+let companionLifeResetTimer: ReturnType<typeof setTimeout> | undefined
+
+function companionLifeMessage(decision: CompanionLifeDecision, cue?: CompanionLifeMessageCue) {
+  if (!cue)
+    return t(`settings.pages.companion.life.messages.${decision.kind}`)
+
+  return t(`settings.pages.companion.life.personalizedMessages.${decision.kind}.${cue.type}`, {
+    value: cue.value,
+  })
+}
+
+function presentCompanionLifeBehavior(
+  decision: CompanionLifeDecision,
+  messageCue: CompanionLifeMessageCue | undefined,
+  mood: CompanionMoodSnapshot,
+) {
+  if (companionLifeResetTimer !== undefined)
+    clearTimeout(companionLifeResetTimer)
+
+  companionLifeStore.presentBehavior(
+    decision.kind,
+    companionLifeMessage(decision, messageCue),
+    8_000,
+  )
+  emotionsQueue.enqueue(resolveCompanionLifeEmotion(decision.kind, mood))
+
+  // Life performances are temporary. A newly started chat clears the active
+  // behavior, so this reset cannot overwrite a response-owned expression.
+  companionLifeResetTimer = setTimeout(() => {
+    companionLifeResetTimer = undefined
+    if (companionLifeStore.activeBehavior !== decision.kind || companionLifeBusy.value)
+      return
+
+    emotionsQueue.enqueue({ name: Emotion.Neutral, intensity: 0.4 })
+  }, 7_500)
+}
+
+useCompanionLife({
+  busy: companionLifeBusy,
+  onBehavior: presentCompanionLifeBehavior,
+})
+
 const streamingControl = useLlmStreamingControlStore()
+let receivedExplicitActForResponse = false
 
 function toStageEmotionPayload(payload: { name: string, intensity: number }): EmotionPayload | undefined {
   switch (payload.name) {
@@ -243,6 +303,7 @@ function applyActExpression(expression: ReturnType<typeof normalizeActPayload>['
 
 chatHookCleanups.push(streamingControl.onSignal(async (signal) => {
   if (signal.type === 'act') {
+    receivedExplicitActForResponse = true
     const act = normalizeActPayload(signal.payload)
 
     // Independent fields: expression, emotion, and explicit motion may combine.
@@ -798,6 +859,9 @@ watch(latestStopRequest, (request) => {
 })
 
 chatHookCleanups.push(onBeforeMessageComposed(async () => {
+  assistantTurnActive.value = true
+  companionLifeStore.clearMessage()
+  receivedExplicitActForResponse = false
   officialAutoTtsTrackedForTurn = false
   playbackManager.stopAll('new-message')
 
@@ -822,11 +886,31 @@ chatHookCleanups.push(onTokenSpecial(async (special) => {
 }))
 
 chatHookCleanups.push(onStreamEnd(async () => {
+  assistantTurnActive.value = false
   currentSession?.finishInput()
 }))
 
-chatHookCleanups.push(onAssistantResponseEnd(async (_message) => {
+chatHookCleanups.push(onAssistantResponseEnd(async (message) => {
+  assistantTurnActive.value = false
   currentSession?.end()
+
+  // Models are encouraged to emit ACT markers, but not every provider follows
+  // that protocol reliably. Infer one restrained performance from the completed
+  // answer only when no explicit ACT was received; explicit model direction wins.
+  if (!receivedExplicitActForResponse) {
+    const inferredEmotion = inferResponseEmotion(message)
+    emotionsQueue.enqueue(inferredEmotion)
+
+    if (stageModelRenderer.value === 'live2d') {
+      const expressionName = selectExpressionForEmotion(
+        inferredEmotion.name,
+        Array.from(expressionStore.expressionGroups.keys()),
+      )
+      if (expressionName)
+        expressionStore.set(expressionName, 1, 4)
+    }
+  }
+
   // Streaming sessions null-out via the onDone hook; segmenter sessions
   // stay around until the next `onBeforeMessageComposed` cancels them
   // (the segmenter pipeline's IntentHandle.end is idempotent and
@@ -965,6 +1049,9 @@ async function captureFrame() {
 }
 
 onUnmounted(() => {
+  if (companionLifeResetTimer !== undefined)
+    clearTimeout(companionLifeResetTimer)
+  companionLifeStore.clearMessage()
   resetLive2dLipSync()
   chatHookCleanups.forEach(dispose => dispose?.())
   viewUpdateCleanups.forEach(dispose => dispose?.())

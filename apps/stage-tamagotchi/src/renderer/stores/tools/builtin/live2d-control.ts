@@ -122,6 +122,13 @@ export function buildLive2DControlToolsetPrompt(expressionNames: readonly string
     expressionList,
     '',
     '2) live2d_view tool: get/set/moveBy/reset character stage offset (x/y percent) and scale.',
+    '',
+    '3) Match the character performance to the meaning of each answer with speech-timed ACT markers.',
+    'Use one of these emotions: happy, sad, angry, think, surprised, awkward, question, curious, neutral.',
+    'Use ACT.motion for a known Live2D motion group and ACT.expression only with an exact preset name listed above.',
+    'Example: <|ACT {"emotion":"happy","motion":"Happy"}|>',
+    'Example with a loaded expression: <|ACT {"emotion":"surprised","expression":"Surprised"}|>',
+    'Do not print ACT markers as visible prose. Emit them only as control tokens near the sentence they should animate.',
   ].join('\n')
 }
 

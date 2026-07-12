@@ -21,18 +21,8 @@ const sceneEntries = computed(() => {
 const activeBackgroundId = computed({
   get: () => cardStore.activeCard?.extensions?.airi?.modules?.activeBackgroundId || 'none',
   set: (val: string) => {
-    if (!cardStore.activeCard)
+    if (!cardStore.updateActiveCardBackground(val))
       return
-    const extension = JSON.parse(JSON.stringify(cardStore.activeCard.extensions))
-    if (!extension.airi.modules)
-      extension.airi.modules = {}
-
-    extension.airi.modules.activeBackgroundId = val
-
-    cardStore.updateCard(cardStore.activeCardId, {
-      ...cardStore.activeCard,
-      extensions: extension,
-    })
     trackSceneBackgroundSet({ source: 'scene_settings', cleared: val === 'none' })
   },
 })

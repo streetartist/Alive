@@ -1,4 +1,4 @@
-import type { MemoryBackend, MemoryScope } from '@proj-airi/memory'
+import type { MemoryBackend, MemoryCompletedTurn, MemoryRecord, MemoryScope } from '@proj-airi/memory'
 import type { ChatProvider } from '@xsai-ext/providers/utils'
 import type { CommonContentPart, Message, ToolMessage } from '@xsai/shared-chat'
 
@@ -320,8 +320,18 @@ export interface ChatOrchestratorRuntimeDeps {
   }) => void
   /** Called after assistant streaming and hook finalization. */
   onAssistantTurnReady?: (event: {
+    sessionId: string
     messageText: string
     sessionMessages: ChatHistoryItem[]
+  }) => void
+  /** Called only after a completed turn has been accepted by durable memory. */
+  onDurableTurnRemembered?: (event: {
+    sessionId: string
+    scope: MemoryScope
+    user: MemoryCompletedTurn['user']
+    assistant: MemoryCompletedTurn['assistant']
+    memoryRecord: MemoryRecord
+    messageText: string
   }) => void
 }
 
@@ -855,29 +865,42 @@ export function createChatOrchestratorRuntime(deps: ChatOrchestratorRuntimeDeps)
       }
 
       if (deps.memory && memoryScope && persistedAssistant?.id && userMessage.id) {
-        try {
-          await deps.memory.rememberTurn({
-            idempotencyKey: JSON.stringify([
-              'chat-turn',
-              sessionId,
-              userMessage.id,
-              persistedAssistant.id,
-            ]),
-            scope: memoryScope,
+        const completedTurn: MemoryCompletedTurn = {
+          idempotencyKey: JSON.stringify([
+            'chat-turn',
             sessionId,
-            user: {
-              id: userMessage.id,
-              text: sendingMessage,
-              createdAt: userMessage.createdAt,
-            },
-            assistant: {
-              id: persistedAssistant.id,
-              text: typeof persistedAssistant.content === 'string'
-                ? persistedAssistant.content
-                : fullText,
-              createdAt: persistedAssistant.createdAt ?? now(),
-            },
-          })
+            userMessage.id,
+            persistedAssistant.id,
+          ]),
+          scope: memoryScope,
+          sessionId,
+          user: {
+            id: userMessage.id,
+            text: sendingMessage,
+            createdAt: userMessage.createdAt,
+          },
+          assistant: {
+            id: persistedAssistant.id,
+            text: typeof persistedAssistant.content === 'string'
+              ? persistedAssistant.content
+              : fullText,
+            createdAt: persistedAssistant.createdAt ?? now(),
+          },
+        }
+
+        try {
+          const memoryRecord = await deps.memory.rememberTurn(completedTurn)
+
+          if (memoryRecord && completedTurn.assistant.text.trim()) {
+            deps.onDurableTurnRemembered?.({
+              sessionId,
+              scope: memoryScope,
+              user: completedTurn.user,
+              assistant: completedTurn.assistant,
+              memoryRecord,
+              messageText: fullText,
+            })
+          }
 
           deps.onLifecycle?.({
             phase: 'memory-remember',
@@ -915,6 +938,7 @@ export function createChatOrchestratorRuntime(deps: ChatOrchestratorRuntimeDeps)
       }, streamingMessageContext)
 
       deps.onAssistantTurnReady?.({
+        sessionId,
         messageText: fullText,
         sessionMessages: deps.session.getSessionMessages(sessionId),
       })

@@ -1,12 +1,15 @@
 import type {
   MemoryBackend,
-  MemoryCompletedTurn,
+  MemoryMilestoneInput,
   MemoryRecallMatch,
   MemoryRecallRequest,
   MemoryRecord,
+  MemoryScope,
 } from '@proj-airi/memory'
 
 import type { MemoryRepository } from '../../database/repos/memories.repo'
+
+import { annotateMemoryRecord } from '@proj-airi/memory'
 
 import { memoriesRepo } from '../../database/repos/memories.repo'
 
@@ -57,13 +60,13 @@ const ENGLISH_SEARCH_STOP_WORDS = new Set([
   'your',
 ])
 
-/** Configuration for the durable device-local episodic memory backend. */
+/** Configuration for the durable device-local conversation memory backend. */
 export interface LocalMemoryBackendOptions {
   /** Repository that owns the persistence boundary. */
   repository?: MemoryRepository
   /** Clock used for decay and access metadata. @default Date.now */
   now?: () => number
-  /** Maximum episodic records retained for one owner/character scope. @default 500 */
+  /** Maximum records retained for one owner/character scope. @default 500 */
   maxRecords?: number
 }
 
@@ -128,11 +131,13 @@ function scoreRecord(record: MemoryRecord, normalizedQuery: string, queryTokens:
   // when Unix seconds and JavaScript timestamps are mixed.
   const recency = Math.exp(-Math.LN2 * ageMs / (30 * 86_400_000))
 
-  return 0.7 * queryCoverage + 0.2 * Number(exactPhrase) + 0.1 * recency
+  const explicitSignificance = 0.05 * (record.importance - 0.5)
+    + 0.025 * Math.abs(record.emotionalWeight)
+  return 0.7 * queryCoverage + 0.2 * Number(exactPhrase) + 0.1 * recency + explicitSignificance
 }
 
 /**
- * Creates AIRI's built-in device-local episodic memory backend.
+ * Creates AIRI's built-in device-local conversation memory backend.
  *
  * The implementation intentionally stores completed conversation turns and
  * performs bounded lexical recall only. Semantic consolidation, embeddings,
@@ -144,20 +149,52 @@ export function createLocalMemoryBackend(options: LocalMemoryBackendOptions = {}
   const repository = options.repository ?? memoriesRepo
   const now = options.now ?? Date.now
   const maxRecords = Math.max(1, Math.floor(options.maxRecords ?? 500))
+  const pendingRecordUpdates = new Map<string, Promise<void>>()
 
-  async function pruneScope(input: MemoryCompletedTurn) {
-    const records = await repository.list(input.scope)
+  async function updateRecord<T>(
+    scope: MemoryScope,
+    id: string,
+    update: (record: MemoryRecord | null) => Promise<T>,
+  ) {
+    const key = JSON.stringify([scope.ownerId, scope.characterId, id])
+    const previous = pendingRecordUpdates.get(key)
+    let resolveCompletion: () => void = () => {}
+    const completion = new Promise<void>((resolve) => {
+      resolveCompletion = resolve
+    })
+    pendingRecordUpdates.set(key, completion)
+
+    try {
+      await previous?.catch(() => undefined)
+      return await update(await repository.get(scope, id))
+    }
+    finally {
+      resolveCompletion()
+      if (pendingRecordUpdates.get(key) === completion)
+        pendingRecordUpdates.delete(key)
+    }
+  }
+
+  async function pruneScope(scope: MemoryScope) {
+    const records = await repository.list(scope)
     if (records.length <= maxRecords)
       return
 
-    // Repository order is newest-first. Drop the tail so retention is stable
-    // and a reload cannot change which records survive.
-    const expired = records.slice(maxRecords)
-    await Promise.all(expired.map(record => repository.remove(input.scope, record.id)))
+    // Milestones are the compact long-term history of the relationship. Let
+    // them displace ordinary records before pruning milestone evidence itself.
+    const milestones = records.filter(record => record.kind === 'milestone')
+    const ordinaryRecords = records.filter(record => record.kind !== 'milestone')
+    const retainedMilestones = milestones.slice(0, maxRecords)
+    const ordinaryLimit = Math.max(0, maxRecords - retainedMilestones.length)
+    const expired = [
+      ...ordinaryRecords.slice(ordinaryLimit),
+      ...milestones.slice(maxRecords),
+    ]
+    await Promise.all(expired.map(record => repository.remove(scope, record.id)))
   }
 
   return {
-    id: 'local-indexeddb-v1',
+    id: 'local-indexeddb-v2',
 
     async rememberTurn(input) {
       const userText = input.user.text.trim()
@@ -172,10 +209,12 @@ export function createLocalMemoryBackend(options: LocalMemoryBackendOptions = {}
 
       const createdAt = now()
       const record: MemoryRecord = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         id,
         scope: { ...input.scope },
-        kind: 'episodic',
+        kind: 'experience',
+        importance: 0.5,
+        emotionalWeight: 0,
         content: `User: ${userText}\nAIRI: ${assistantText}`,
         source: {
           type: 'chat-turn',
@@ -189,7 +228,47 @@ export function createLocalMemoryBackend(options: LocalMemoryBackendOptions = {}
       }
 
       await repository.save(record)
-      await pruneScope(input)
+      await pruneScope(input.scope)
+      return record
+    },
+
+    async rememberMilestone(input: MemoryMilestoneInput) {
+      const idempotencyKey = input.idempotencyKey.trim()
+      const content = input.content.trim()
+      const eventName = input.source.eventName.trim()
+      const eventId = input.source.eventId.trim()
+      if (!idempotencyKey || !content || !eventName || !eventId)
+        throw new Error('Memory milestones require idempotency, content, and source identifiers.')
+      if (!Number.isFinite(input.occurredAt))
+        throw new Error('Memory milestone occurredAt must be a finite timestamp.')
+
+      const id = `milestone:${idempotencyKey}`
+      const existing = await repository.get(input.scope, id)
+      if (existing)
+        return existing
+
+      const record: MemoryRecord = {
+        schemaVersion: 2,
+        id,
+        scope: { ...input.scope },
+        kind: 'milestone',
+        // A milestone is a category, not an inferred claim of user importance.
+        importance: 0.5,
+        emotionalWeight: 0,
+        content,
+        source: {
+          type: 'system-event',
+          eventName,
+          eventId,
+        },
+        createdAt: input.occurredAt,
+        updatedAt: input.occurredAt,
+        accessCount: 0,
+        metadata: input.metadata ? { ...input.metadata } : undefined,
+      }
+
+      await repository.save(record)
+      await pruneScope(input.scope)
       return record
     },
 
@@ -234,12 +313,18 @@ export function createLocalMemoryBackend(options: LocalMemoryBackendOptions = {}
         .slice(0, limit)
 
       return await Promise.all(selected.map(async (match) => {
-        const accessedRecord: MemoryRecord = {
-          ...match.record,
-          lastAccessedAt: recalledAt,
-          accessCount: match.record.accessCount + 1,
-        }
-        await repository.save(accessedRecord)
+        const accessedRecord = await updateRecord(input.scope, match.record.id, async (current) => {
+          if (!current)
+            return match.record
+
+          const next: MemoryRecord = {
+            ...current,
+            lastAccessedAt: recalledAt,
+            accessCount: current.accessCount + 1,
+          }
+          await repository.save(next)
+          return next
+        })
         return { ...match, record: accessedRecord }
       }))
     },
@@ -247,6 +332,18 @@ export function createLocalMemoryBackend(options: LocalMemoryBackendOptions = {}
     async list(input) {
       const records = await repository.list(input.scope)
       return records.slice(0, Math.max(0, Math.floor(input.limit)))
+    },
+
+    async annotate(input) {
+      return await updateRecord(input.scope, input.id, async (current) => {
+        if (!current)
+          throw new Error('Memory record was not found in this scope.')
+
+        const annotated = annotateMemoryRecord(current, input.annotation, now())
+        if (annotated !== current)
+          await repository.save(annotated)
+        return annotated
+      })
     },
 
     async remove(input) {

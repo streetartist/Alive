@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import type { MemoryRecord } from '@proj-airi/memory'
 
+import { companionGrowthStageFromMemory } from '@proj-airi/stage-ui/services/companionGrowthMilestone'
 import { Button, Callout, DoubleCheckButton } from '@proj-airi/ui'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+
+import MemoryAnnotationEditor from './MemoryAnnotationEditor.vue'
 
 const props = defineProps<{
   records: MemoryRecord[]
@@ -16,6 +19,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   retry: []
   forget: [record: MemoryRecord]
+  annotated: [record: MemoryRecord]
 }>()
 
 const { t, locale } = useI18n()
@@ -45,6 +49,16 @@ function kindLabel(record: MemoryRecord) {
 
 function sourceLabel(record: MemoryRecord) {
   return t(`settings.pages.memory.records.source.${record.source.type}`)
+}
+
+function recordContent(record: MemoryRecord) {
+  const stage = companionGrowthStageFromMemory(record)
+  if (!stage)
+    return record.content
+
+  return t('settings.pages.memory.records.milestones.growthStage', {
+    stage: t(`settings.pages.companion.stages.${stage}`),
+  })
 }
 
 function forgetDisabled(record: MemoryRecord) {
@@ -161,8 +175,14 @@ function forgetDisabled(record: MemoryRecord) {
           </div>
 
           <p :class="['whitespace-pre-wrap break-words text-sm leading-6 text-neutral-800 dark:text-neutral-100']">
-            {{ record.content }}
+            {{ recordContent(record) }}
           </p>
+
+          <MemoryAnnotationEditor
+            :record="record"
+            :disabled="actionsDisabled || forgettingRecordId !== undefined"
+            @saved="emit('annotated', $event)"
+          />
 
           <dl :class="['grid gap-2 text-xs text-neutral-500 sm:grid-cols-2 lg:grid-cols-4 dark:text-neutral-400']">
             <div :class="['flex flex-col gap-0.5']">

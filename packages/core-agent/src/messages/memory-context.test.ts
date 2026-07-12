@@ -6,13 +6,15 @@ import { formatMemoryContextText } from './memory-context'
 
 function createRecord(overrides: Partial<MemoryRecord> = {}): MemoryRecord {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: 'memory-1',
     scope: {
       ownerId: 'owner-1',
       characterId: 'character-1',
     },
-    kind: 'episodic',
+    kind: 'experience',
+    importance: 0.5,
+    emotionalWeight: 0,
     content: 'The user likes jasmine tea.',
     source: {
       type: 'chat-turn',
@@ -58,16 +60,16 @@ describe('formatMemoryContextText', () => {
   it('preserves best-first order and stable provenance metadata', () => {
     const text = formatMemoryContextText([
       createMatch({ id: 'first', content: 'first evidence' }),
-      createMatch({ id: 'second', content: 'second evidence', kind: 'semantic' }),
+      createMatch({ id: 'second', content: 'second evidence', kind: 'fact' }),
     ], { maxCharacters: 1000 })
 
     expect(text.indexOf('id="first"')).toBeLessThan(text.indexOf('id="second"'))
-    expect(text).toContain('kind=episodic source=chat-turn at=2026-04-20T12:30:00.000Z')
-    expect(text).toContain('kind=semantic source=chat-turn at=2026-04-20T12:30:00.000Z')
+    expect(text).toContain('kind=experience importance=0.50 emotionalWeight=0.00 source=chat-turn at=2026-04-20T12:30:00.000Z')
+    expect(text).toContain('kind=fact importance=0.50 emotionalWeight=0.00 source=chat-turn at=2026-04-20T12:30:00.000Z')
   })
 
   it('hard-bounds the block and truncates serialized content without admitting overflow items', () => {
-    const maxCharacters = 240
+    const maxCharacters = 320
     const text = formatMemoryContextText([
       createMatch({ id: 'first', content: 'quoted "memory"\n'.repeat(100) }),
       createMatch({ id: 'second', content: 'must not fit' }),

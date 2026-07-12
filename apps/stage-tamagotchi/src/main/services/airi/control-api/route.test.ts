@@ -24,6 +24,52 @@ describe('createControlApiApp', () => {
       getAddress: () => ({ host: '127.0.0.1', port: 6122, baseUrl: 'http://127.0.0.1:6122' }),
       renderer: {
         getStatus: vi.fn(async () => ({ ready: true })),
+        aliveGetProfile: vi.fn(async () => ({
+          identity: {
+            id: 'character',
+            name: 'Alive',
+            birthday: '2026-07-11T00:00:00.000Z',
+            interests: ['painting'],
+            values: ['kindness'],
+          },
+          personality: { curiosity: 0.5, creativity: 0.5, kindness: 0.5, humor: 0.5 },
+          growthStage: 'seed',
+        })),
+        aliveGetState: vi.fn(async () => ({
+          state: { interactionCount: 1 },
+          mood: {
+            label: 'neutral',
+            valence: 0,
+            arousal: 0.25,
+            updatedAt: 1,
+            resolvedAt: 2,
+          },
+        })),
+        aliveListMemory: vi.fn(async () => ({
+          scope: { ownerId: 'owner', characterId: 'character' },
+          records: [{
+            schemaVersion: 2,
+            id: 'memory-1',
+            scope: { ownerId: 'owner', characterId: 'character' },
+            kind: 'milestone',
+            importance: 1,
+            emotionalWeight: 0.6,
+            content: 'We completed a shared project.',
+            source: {
+              type: 'chat-turn',
+              sessionId: 'session',
+              turnId: 'turn',
+              messageIds: ['user', 'assistant'],
+            },
+            createdAt: 1,
+            updatedAt: 1,
+            accessCount: 0,
+          }],
+        })),
+        aliveReflect: vi.fn(async () => ({
+          state: { interactionCount: 10 },
+          mode: 'model',
+        })),
         chatSend: vi.fn(async () => undefined),
         chatSpotlight: vi.fn(async () => ({ sessionId: 's1', visibleText: 'hello' })),
         chatRetry: vi.fn(async () => undefined),
@@ -254,6 +300,60 @@ describe('createControlApiApp', () => {
     expect(response.status).toBe(200)
     expect(options.renderer.chatSend).toHaveBeenCalledWith({ text: 'hello', sessionId: 's1', toolset: 'artistry' })
     expect(operations).toContainEqual({ operation: 'chat.send', payload: { sessionId: 's1' } })
+  })
+
+  it('exposes companion profile, state, and memory snapshots', async () => {
+    const options = createOptions()
+    await listen(options)
+
+    const [profile, state, memories] = await Promise.all([
+      fetch(`${baseUrl}/v1/alive/profile`, { headers: authHeaders() }),
+      fetch(`${baseUrl}/v1/alive/state`, { headers: authHeaders() }),
+      fetch(`${baseUrl}/v1/alive/memory`, { headers: authHeaders() }),
+    ])
+
+    expect(profile.status).toBe(200)
+    expect(await profile.json()).toMatchObject({
+      identity: {
+        name: 'Alive',
+        interests: ['painting'],
+        values: ['kindness'],
+      },
+    })
+    expect(state.status).toBe(200)
+    expect(await state.json()).toMatchObject({
+      state: { interactionCount: 1 },
+      mood: { label: 'neutral', valence: 0, arousal: 0.25 },
+    })
+    expect(memories.status).toBe(200)
+    expect(await memories.json()).toMatchObject({
+      records: [{
+        schemaVersion: 2,
+        kind: 'milestone',
+        importance: 1,
+        emotionalWeight: 0.6,
+      }],
+    })
+  })
+
+  it('triggers companion reflection and publishes an operation event', async () => {
+    const options = createOptions()
+    const operations: unknown[] = []
+    options.events.subscribe((event) => {
+      if (event.type === 'operation')
+        operations.push(event.payload)
+    })
+    await listen(options)
+
+    const response = await fetch(`${baseUrl}/v1/alive/reflection`, {
+      method: 'POST',
+      headers: authHeaders(),
+    })
+
+    expect(response.status).toBe(200)
+    expect(options.renderer.aliveReflect).toHaveBeenCalledOnce()
+    expect(await response.json()).toMatchObject({ mode: 'model' })
+    expect(operations).toContainEqual({ operation: 'alive.reflection', payload: undefined })
   })
 
   it('maps MCP tool call arguments from JSON body', async () => {

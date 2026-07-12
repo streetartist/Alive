@@ -42,7 +42,7 @@ describe('live2d control tools', () => {
     expect(tools).toSatisfyStrictToolSchemas()
   })
 
-  it('lists live expression presets and the view tool without protocol lectures', () => {
+  it('lists live expression presets and speech-timed performance guidance', () => {
     const prompt = buildLive2DControlToolsetPrompt(['脸红', '星星眼', '水印开关'])
 
     expect(prompt).toContain('脸红')
@@ -50,8 +50,9 @@ describe('live2d control tools', () => {
     expect(prompt).toContain('水印开关')
     expect(prompt).toContain('live2d_view')
     expect(prompt).toContain('ACT.expression')
+    expect(prompt).toContain('ACT.motion')
+    expect(prompt).toContain('"emotion":"happy"')
     expect(prompt).not.toContain('live2d_expression')
-    expect(prompt).not.toContain('happy/sad')
   })
 
   it('moves the Live2D view relative to the current state', async () => {
