@@ -184,8 +184,7 @@ async function executeSetAsBackground(params: { query?: string }) {
   const cardId = cardStore.activeCardId
   const query = params.query.toLowerCase().trim()
 
-  const entries = Array.from(backgroundStore.entries.values())
-    .filter(e => e.characterId === null || e.characterId === cardId)
+  const entries = backgroundStore.getCharacterJournalEntries(cardId)
 
   let entry = entries.find(e => e.type === 'journal' && (e.id === query || e.id.toLowerCase().includes(query)))
   if (!entry)

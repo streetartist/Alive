@@ -33,6 +33,12 @@ docs:
   'account': Account
   'logout': Sign out
 
+'companion-status':
+  loading: Loading companion status
+  unavailable: Companion status is unavailable; open Companion Growth for details
+  open: 'Open Companion Growth: {stage}, relationship {score}/100, mood {mood}'
+  tooltip: '{stage} · relationship {score}/100 · {mood} · energy {energy}%'
+
 widgets:
   close: Close widget
   empty:

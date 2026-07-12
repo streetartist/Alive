@@ -20,6 +20,10 @@ import { ipcMain } from 'electron'
 import { boolean, number, object, optional, string } from 'valibot'
 
 import {
+  electronControlApiAliveGetProfile,
+  electronControlApiAliveGetState,
+  electronControlApiAliveListMemory,
+  electronControlApiAliveReflect,
   electronControlApiChatCleanup,
   electronControlApiChatCreateSession,
   electronControlApiChatDeleteMessage,
@@ -166,6 +170,10 @@ export function setupControlApiServer(options: ControlApiServerOptions): ServerM
   const broadcastContext = createContext(ipcMain).context
 
   const invokeGetStatus = defineInvoke(rendererContext, electronControlApiGetStatus)
+  const invokeAliveGetProfile = defineInvoke(rendererContext, electronControlApiAliveGetProfile)
+  const invokeAliveGetState = defineInvoke(rendererContext, electronControlApiAliveGetState)
+  const invokeAliveListMemory = defineInvoke(rendererContext, electronControlApiAliveListMemory)
+  const invokeAliveReflect = defineInvoke(rendererContext, electronControlApiAliveReflect)
   const invokeChatSend = defineInvoke(rendererContext, electronControlApiChatSend)
   const invokeChatSpotlight = defineInvoke(rendererContext, electronControlApiChatSpotlight)
   const invokeChatRetry = defineInvoke(rendererContext, electronControlApiChatRetry)
@@ -201,6 +209,10 @@ export function setupControlApiServer(options: ControlApiServerOptions): ServerM
     getAddress: () => address,
     renderer: {
       getStatus: () => invokeGetStatus(),
+      aliveGetProfile: () => invokeAliveGetProfile(),
+      aliveGetState: () => invokeAliveGetState(),
+      aliveListMemory: () => invokeAliveListMemory(),
+      aliveReflect: () => invokeAliveReflect(),
       chatSend: payload => invokeChatSend(payload),
       chatSpotlight: payload => invokeChatSpotlight(payload),
       chatRetry: payload => invokeChatRetry(payload),

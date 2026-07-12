@@ -3,6 +3,10 @@ import type { ProviderMetadata, VoiceInfo } from '@proj-airi/stage-ui/stores/pro
 import type { SpeechProviderWithExtraOptions } from '@xsai-ext/providers/utils'
 
 import type {
+  ControlApiAliveMemorySnapshot,
+  ControlApiAliveProfileSnapshot,
+  ControlApiAliveReflectionResult,
+  ControlApiAliveStateSnapshot,
   ControlApiChatCreateSessionRequest,
   ControlApiChatInterruptResult,
   ControlApiChatMessagesRequest,
@@ -30,18 +34,26 @@ import type {
 } from '../../shared/eventa'
 
 import { defineInvokeHandler } from '@moeru/eventa'
+import { resolveCompanionMood } from '@proj-airi/companion-core'
 import { useExpressionStore, useL2dViewControl, useLive2dParams } from '@proj-airi/stage-ui-live2d/stores'
+import { useAuthStore } from '@proj-airi/stage-ui/stores/auth'
 import { useChatOrchestratorStore } from '@proj-airi/stage-ui/stores/chat'
 import { useChatSessionStore } from '@proj-airi/stage-ui/stores/chat/session-store'
 import { useChatStreamStore } from '@proj-airi/stage-ui/stores/chat/stream-store'
 import { useAiriCardStore } from '@proj-airi/stage-ui/stores/modules/airi-card'
+import { useCompanionStore } from '@proj-airi/stage-ui/stores/modules/companion'
 import { useConsciousnessStore } from '@proj-airi/stage-ui/stores/modules/consciousness'
 import { useHearingStore } from '@proj-airi/stage-ui/stores/modules/hearing'
+import { useMemoryStore } from '@proj-airi/stage-ui/stores/modules/memory'
 import { useSpeechStore } from '@proj-airi/stage-ui/stores/modules/speech'
 import { useVisionStore } from '@proj-airi/stage-ui/stores/modules/vision/store'
 import { useProvidersStore } from '@proj-airi/stage-ui/stores/providers'
 
 import {
+  electronControlApiAliveGetProfile,
+  electronControlApiAliveGetState,
+  electronControlApiAliveListMemory,
+  electronControlApiAliveReflect,
   electronControlApiChatCleanup,
   electronControlApiChatCreateSession,
   electronControlApiChatDeleteMessage,
@@ -132,6 +144,7 @@ function fallbackVoice(providerId: string, voiceId: string): VoiceInfo {
 }
 
 function useControlApiStores() {
+  const authStore = useAuthStore()
   const providersStore = useProvidersStore()
   const consciousnessStore = useConsciousnessStore()
   const speechStore = useSpeechStore()
@@ -142,6 +155,8 @@ function useControlApiStores() {
   const chatOrchestratorStore = useChatOrchestratorStore()
   const chatStreamStore = useChatStreamStore()
   const airiCardStore = useAiriCardStore()
+  const companionStore = useCompanionStore()
+  const memoryStore = useMemoryStore()
   const expressionStore = useExpressionStore()
   const live2dViewControl = useL2dViewControl()
   const live2dParamsStore = useLive2dParams()
@@ -152,6 +167,75 @@ function useControlApiStores() {
 
     if (chatSyncStore.mode === 'inactive')
       chatSyncStore.initialize('authority')
+  }
+
+  async function aliveScope() {
+    await ensureChatReady()
+    const activeMeta = chatSessionStore.sessionMetas[chatSessionStore.activeSessionId]
+    return {
+      ownerId: activeMeta?.userId ?? authStore.userId,
+      characterId: activeMeta?.characterId ?? airiCardStore.activeCardId,
+    }
+  }
+
+  function aliveProfileSnapshot(
+    scope: Awaited<ReturnType<typeof aliveScope>>,
+    state: Awaited<ReturnType<typeof companionStore.loadState>>,
+    profile: Awaited<ReturnType<typeof companionStore.loadProfile>>,
+  ): ControlApiAliveProfileSnapshot {
+    const card = airiCardStore.cards.get(scope.characterId)
+    return {
+      identity: {
+        id: scope.characterId,
+        name: card?.name ?? scope.characterId,
+        birthday: profile.birthday,
+        interests: [...profile.interests],
+        values: [...profile.values],
+      },
+      personality: { ...state.personality },
+      growthStage: state.growthStage,
+    }
+  }
+
+  async function getAliveProfile(): Promise<ControlApiAliveProfileSnapshot> {
+    const scope = await aliveScope()
+    const [state, profile] = await Promise.all([
+      companionStore.loadState(scope),
+      companionStore.loadProfile(scope),
+    ])
+    return cloneJson(aliveProfileSnapshot(scope, state, profile))
+  }
+
+  async function listAliveMemory(): Promise<ControlApiAliveMemorySnapshot> {
+    const scope = await aliveScope()
+    return cloneJson({
+      scope,
+      records: await memoryStore.listMemories(scope),
+    })
+  }
+
+  async function getAliveState(): Promise<ControlApiAliveStateSnapshot> {
+    const scope = await aliveScope()
+    const [state, profile, records] = await Promise.all([
+      companionStore.loadState(scope),
+      companionStore.loadProfile(scope),
+      memoryStore.listMemories(scope),
+    ])
+    return cloneJson({
+      profile: aliveProfileSnapshot(scope, state, profile),
+      state,
+      mood: resolveCompanionMood(state.mood),
+      lastMemory: records[0],
+    })
+  }
+
+  async function reflectAlive(): Promise<ControlApiAliveReflectionResult> {
+    const scope = await aliveScope()
+    const result = await companionStore.reflect(scope, { force: true })
+    return cloneJson({
+      ...result,
+      reflection: result.state.reflections.at(-1),
+    })
   }
 
   function providerStatus(): ControlApiProviderStatus {
@@ -440,6 +524,10 @@ function useControlApiStores() {
   }
 
   return {
+    getAliveProfile,
+    getAliveState,
+    listAliveMemory,
+    reflectAlive,
     ensureChatReady,
     chatOrchestratorStore,
     chatSessionStore,
@@ -478,6 +566,10 @@ export function initializeControlApiRendererBridge(options: ControlApiRendererBr
   const stores = useControlApiStores()
   const cleanups = [
     defineInvokeHandler(options.context, electronControlApiGetStatus, () => stores.getStatus(options.routePath)),
+    defineInvokeHandler(options.context, electronControlApiAliveGetProfile, () => stores.getAliveProfile()),
+    defineInvokeHandler(options.context, electronControlApiAliveGetState, () => stores.getAliveState()),
+    defineInvokeHandler(options.context, electronControlApiAliveListMemory, () => stores.listAliveMemory()),
+    defineInvokeHandler(options.context, electronControlApiAliveReflect, () => stores.reflectAlive()),
     defineInvokeHandler(options.context, electronControlApiChatSend, async (payload) => {
       await stores.ensureChatReady()
       await stores.chatSyncStore.requestIngest(payload)

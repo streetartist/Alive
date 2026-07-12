@@ -66,9 +66,9 @@ const currentImage = computed(() => {
 })
 const resolvedImageUrl = computed(() => {
   if (currentImage.value)
-    return backgroundStore.getBackgroundUrl(currentImage.value.id)
+    return backgroundStore.getBackgroundUrl(currentImage.value.id, cardStore.activeCardId)
   if (props.entryId)
-    return backgroundStore.getBackgroundUrl(props.entryId)
+    return backgroundStore.getBackgroundUrl(props.entryId, cardStore.activeCardId)
   return props.imageUrl
 })
 

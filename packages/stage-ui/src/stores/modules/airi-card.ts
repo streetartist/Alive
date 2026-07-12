@@ -179,6 +179,10 @@ export const useAiriCardStore = defineStore('airi-card', () => {
     return updateActiveCardModules(() => ({ displayModelId }))
   }
 
+  function updateActiveCardBackground(backgroundId?: string) {
+    return updateActiveCardModules(() => ({ activeBackgroundId: backgroundId }))
+  }
+
   function updateActiveCardConsciousness(consciousness: AiriExtension['modules']['consciousness']) {
     return updateActiveCardModules(() => ({ consciousness }))
   }
@@ -423,6 +427,7 @@ export const useAiriCardStore = defineStore('airi-card', () => {
     addCard,
     removeCard,
     updateCard,
+    updateActiveCardBackground,
     updateActiveCardConsciousness,
     updateActiveCardDisplayModel,
     updateActiveCardSpeech,

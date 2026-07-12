@@ -399,8 +399,71 @@ pages:
     upload: Téléverser
     upload_desc: Cliquez ou glissez un paquet de carte AIRI pour l’importer
   memory:
-    description: Endroit où les souvenirs sont stockés et organisés
     title: Mémoire
+    description: Consultez et gérez ce qu’AIRI retient pour le personnage actif
+    status:
+      enabled: Mémoire activée
+      enabledDescription: AIRI peut enregistrer et rappeler des souvenirs durables pour le personnage actif
+      disabled: Mémoire en pause
+      disabledDescription: Les souvenirs existants restent consultables et supprimables, mais AIRI n’en enregistrera ni n’en rappellera
+    scope:
+      title: Mémoire par personnage
+      description: Les souvenirs sont isolés par compte et par personnage actif
+      activeCharacter: 'Personnage actif : {characterId}'
+    controls:
+      title: Contrôles de la mémoire
+      description: Choisissez si AIRI mémorise les conversations et quelle quantité de contexte rappelé atteint une réponse
+      enabled:
+        label: Activer la mémoire durable
+        description: Autoriser AIRI à enregistrer les conversations terminées et à rappeler les détails pertinents plus tard
+      recallLimit:
+        label: Souvenirs maximum par réponse
+        description: Limite le nombre d’éléments pertinents considérés pour une réponse
+        value: '{count} souvenirs'
+      promptCharacterBudget:
+        label: Budget du contexte rappelé
+        description: Limite le nombre de caractères de mémoire ajoutés au prompt du modèle
+        value: '{count} caractères'
+      refresh: Actualiser les souvenirs
+      clear: Oublier tous les souvenirs
+      clearConfirm: Oui, tout oublier
+      clearCancel: Conserver les souvenirs
+    records:
+      title: Détails mémorisés
+      description: Consultez les éléments contextuels qu’AIRI peut rappeler pour ce personnage
+      count: '{count} souvenirs enregistrés'
+      loading: Chargement des souvenirs…
+      empty:
+        title: Aucun souvenir pour le moment
+        description: Les détails pertinents des conversations terminées apparaîtront ici lorsque la mémoire durable sera activée
+      error:
+        title: Impossible de charger les souvenirs
+        description: Vérifiez le service de mémoire et réessayez
+        retry: Réessayer
+      kind:
+        episodic: Épisode
+        semantic: Fait
+        seed: Donnée initiale du personnage
+      source:
+        chat-turn: Conversation
+        character-book: Carte de personnage
+      created: Créé
+      updated: Mis à jour
+      lastAccessed: Dernier rappel
+      neverAccessed: Jamais rappelé
+      recallCount: Rappels
+      accessCount: '{count} rappels réussis'
+      forget: Oublier
+      forgetConfirm: Oui, l’oublier
+      forgetCancel: Le conserver
+      ariaLabel: 'Souvenir {kind} créé le {date}'
+    feedback:
+      forgotten: Souvenir oublié
+      cleared: Tous les souvenirs de ce personnage ont été oubliés
+    errors:
+      load: Échec du chargement des souvenirs
+      forget: Impossible d’oublier ce souvenir
+      clear: Impossible d’effacer les souvenirs
   data:
     title: Données
     description: Gérer les données AIRI enregistrées, les exports et les réinitialisations
@@ -664,12 +727,6 @@ pages:
               Remarque : Si votre fournisseur ne prend pas en charge les réponses verbose_json, ce paramètre n'aura aucun effet.
             verbose-json-unsupported: >-
               Your provider did not return verbose_json segments. Confidence filtering had no effect on the last transcription.
-    memory-long-term:
-      description: Paramètres et gestion de la mémoire à long terme
-      title: Mémoire à long terme
-    memory-short-term:
-      description: Paramètres et gestion de la mémoire à court terme
-      title: Mémoire à court terme
     messaging-discord:
       description: Chat et chat vocal via Discord
       title: Discord

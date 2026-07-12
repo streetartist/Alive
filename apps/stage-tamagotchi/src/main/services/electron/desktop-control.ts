@@ -20,6 +20,7 @@ import {
 } from '../../../shared/eventa'
 import { createDesktopControlConfig } from '../../configs/desktop-control'
 import { onAppBeforeQuit } from '../../libs/bootkit/lifecycle'
+import { showDesktopControlEffect } from './desktop-control-effect'
 
 type EventaMainContext = ReturnType<typeof createContext>['context']
 
@@ -154,7 +155,9 @@ export function createDesktopControlService(params: { context: EventaMainContext
   defineInvokeHandler(params.context, electronDesktopRunAction, async (payload) => {
     const control = await getDesktopControl()
     registerEmergencyStopShortcut(control)
-    return await control.runAction(payload)
+    const result = await control.runAction(payload)
+    await showDesktopControlEffect(payload, result)
+    return result
   })
 
   defineInvokeHandler(params.context, electronDesktopGetPolicy, async () => {

@@ -1,3 +1,5 @@
+import type { BackgroundEntry, BackgroundScope } from './background-scope'
+
 import localforage from 'localforage'
 
 import { useBroadcastChannel } from '@vueuse/core'
@@ -8,19 +10,15 @@ import { computed, onScopeDispose, reactive, ref, watch } from 'vue'
 import cozyTeaCornerInPastelHuesUrl from '../assets/backgrounds/cozy-tea-corner-in-pastel-hues.avif'
 import cuteStreamingRoomWithPastelDecorUrl from '../assets/backgrounds/cute-streaming-room-with-pastel-decor.avif'
 
+import { useAuthStore } from './auth'
+import {
+  canManageBackgroundInScope,
+  isBackgroundVisibleToScope,
+  migrateBackgroundEntry,
+} from './background-scope'
 import { useAiriCardStore } from './modules/airi-card'
 
-export interface BackgroundEntry {
-  id: string
-  type: 'builtin' | 'scene' | 'journal' | 'selfie'
-  characterId: string | null // null for shared
-  title: string
-  blob: Blob
-  url?: string
-  prompt?: string // only for journal
-  remixId?: string // only for ComfyUI journal entries
-  createdAt: number
-}
+export type { BackgroundEntry } from './background-scope'
 
 const BUILTIN_BACKGROUNDS = [
   {
@@ -46,9 +44,19 @@ const BUILTIN_BACKGROUNDS = [
 // the string id collision is enforced at the type level.
 export const useBackgroundStore = defineStore('background-entries', () => {
   const STORAGE_PREFIX = 'bg-'
+  const authStore = useAuthStore()
+  const airiCardStore = useAiriCardStore()
 
   const entries = ref<Map<string, BackgroundEntry>>(new Map())
   const loading = ref(true)
+  let initialization: Promise<void> | undefined
+
+  function scopeFor(characterId = airiCardStore.activeCardId): BackgroundScope {
+    return {
+      ownerId: authStore.userId,
+      characterId,
+    }
+  }
 
   // Track object URLs to prevent leaks
   const blobRefs = new Map<string, any>()
@@ -85,98 +93,102 @@ export const useBackgroundStore = defineStore('background-entries', () => {
     return await res.blob()
   }
 
-  async function initializeStore() {
-    if (loading.value && entries.value.size > 0)
-      return // Already initializing
-
+  async function performInitialization() {
     loading.value = true
     try {
+      const migrationScope = scopeFor()
       const loadedEntries = new Map<string, BackgroundEntry>()
+      const entriesToWriteBack: BackgroundEntry[] = []
 
-      // 1. Read existing backgrounds from IndexedDB
-      await localforage.iterate<BackgroundEntry, void>((val, key) => {
-        if (key.startsWith(STORAGE_PREFIX) || key.startsWith('builtin:')) {
-          const entry = { ...val, id: key }
-          if (entry.blob instanceof Blob) {
-            ensureObjectUrl(key, entry.blob)
-          }
-          loadedEntries.set(key, entry)
-        }
+      // NOTICE:
+      // Legacy entries predate account ownership, so their original owner cannot
+      // be reconstructed. The first v2 initialization assigns them to the current
+      // owner and assigns legacy shared scenes to the active character.
+      // Source/context: BackgroundEntry v1 stored only characterId.
+      // Removal condition: after all supported installations have persisted v2.
+      await localforage.iterate<unknown, void>((value, key) => {
+        if (!key.startsWith(STORAGE_PREFIX) && !key.startsWith('builtin:'))
+          return
+
+        const migrated = migrateBackgroundEntry(value, key, migrationScope)
+        if (!migrated)
+          return
+
+        ensureObjectUrl(key, migrated.entry.blob)
+        loadedEntries.set(key, migrated.entry)
+        if (migrated.changed)
+          entriesToWriteBack.push(migrated.entry)
       })
 
-      // 2. Migration: check for legacy image-journal entries
+      // Legacy image-journal keys keep their existing key migration for runtime
+      // compatibility, but the newly persisted value is owner-scoped v2.
       const legacyPrefix = 'image-journal-'
-      const legacyEntriesToMigrate: BackgroundEntry[] = []
       const legacyKeysToDelete: string[] = []
+      await localforage.iterate<unknown, void>((value, key) => {
+        if (!key.startsWith(legacyPrefix))
+          return
 
-      await localforage.iterate<any, void>((val, key) => {
-        if (key.startsWith(legacyPrefix)) {
-          legacyKeysToDelete.push(key)
-          const newId = key.replace(legacyPrefix, STORAGE_PREFIX)
+        legacyKeysToDelete.push(key)
+        const newId = key.replace(legacyPrefix, STORAGE_PREFIX)
+        if (loadedEntries.has(newId))
+          return
 
-          if (!loadedEntries.has(newId)) {
-            const migrated: BackgroundEntry = {
-              id: newId,
-              type: 'journal',
-              characterId: val.characterId,
-              title: val.title || 'Migrated Journal Image',
-              blob: val.blob,
-              prompt: val.prompt,
-              createdAt: val.createdAt || Date.now(),
-            }
-            if (migrated.blob instanceof Blob) {
-              ensureObjectUrl(newId, migrated.blob)
-            }
-            legacyEntriesToMigrate.push(migrated)
-            loadedEntries.set(newId, migrated)
+        const legacy = value && typeof value === 'object'
+          ? value as Record<string, unknown>
+          : {}
+        const migrated = migrateBackgroundEntry({
+          ...legacy,
+          type: 'journal',
+          title: typeof legacy.title === 'string' ? legacy.title : 'Migrated Journal Image',
+          createdAt: Number.isFinite(legacy.createdAt) ? legacy.createdAt : Date.now(),
+        }, newId, migrationScope)
+        if (!migrated)
+          return
+
+        ensureObjectUrl(newId, migrated.entry.blob)
+        loadedEntries.set(newId, migrated.entry)
+        entriesToWriteBack.push(migrated.entry)
+      })
+
+      await Promise.all(entriesToWriteBack.map(entry => localforage.setItem(entry.id, entry)))
+      await Promise.all(legacyKeysToDelete.map(key => localforage.removeItem(key)))
+
+      for (const builtin of BUILTIN_BACKGROUNDS) {
+        if (loadedEntries.has(builtin.id))
+          continue
+
+        try {
+          const blob = await fetchAssetAsBlob(builtin.url)
+          const entry: BackgroundEntry = {
+            schemaVersion: 2,
+            id: builtin.id,
+            type: 'builtin',
+            ownerId: null,
+            characterId: null,
+            title: builtin.title,
+            blob,
+            createdAt: Date.now(),
           }
+          ensureObjectUrl(entry.id, blob)
+          await localforage.setItem(entry.id, entry)
+          loadedEntries.set(entry.id, entry)
         }
-      })
-
-      for (const entry of legacyEntriesToMigrate) {
-        await localforage.setItem(entry.id, entry)
-      }
-      for (const key of legacyKeysToDelete) {
-        await localforage.removeItem(key)
-      }
-
-      // 3. Seeding logic for defaults
-      const hasAnyScenesOrBuiltins = Array.from(loadedEntries.values()).some((e) => {
-        return e.type === 'scene' || e.type === 'builtin'
-      })
-      if (!hasAnyScenesOrBuiltins) {
-        for (const builtin of BUILTIN_BACKGROUNDS) {
-          try {
-            const blob = await fetchAssetAsBlob(builtin.url)
-            const entry: BackgroundEntry = {
-              id: builtin.id,
-              type: 'builtin',
-              characterId: null,
-              title: builtin.title,
-              blob,
-              createdAt: Date.now(),
-            }
-            ensureObjectUrl(entry.id, blob)
-            await localforage.setItem(entry.id, entry)
-            loadedEntries.set(entry.id, entry)
-          }
-          catch (e) {
-            console.error('[BackgroundStore] Failed to seed builtin:', builtin.id, e)
-          }
+        catch (error) {
+          console.error('[BackgroundStore] Failed to seed builtin:', builtin.id, error)
         }
       }
 
       entries.value = loadedEntries
 
-      // Reconciliation: Purge stale URLs from the reactive map and revoke them to prevent leaks
+      // Reconciliation: Purge stale URLs from the reactive map and revoke them to prevent leaks.
       Object.keys(backgroundUrls).forEach((id) => {
-        if (!loadedEntries.has(id)) {
-          const url = backgroundUrls[id]
-          if (url) {
-            URL.revokeObjectURL(url)
-          }
-          delete backgroundUrls[id]
-        }
+        if (loadedEntries.has(id))
+          return
+
+        const url = backgroundUrls[id]
+        if (url)
+          URL.revokeObjectURL(url)
+        delete backgroundUrls[id]
       })
     }
     catch (error) {
@@ -184,6 +196,19 @@ export const useBackgroundStore = defineStore('background-entries', () => {
     }
     finally {
       loading.value = false
+    }
+  }
+
+  async function initializeStore() {
+    if (initialization)
+      return await initialization
+
+    initialization = performInitialization()
+    try {
+      await initialization
+    }
+    finally {
+      initialization = undefined
     }
   }
 
@@ -203,7 +228,6 @@ export const useBackgroundStore = defineStore('background-entries', () => {
 
   // Find the active background URL for the current character
   const activeBackgroundUrl = computed(() => {
-    const airiCardStore = useAiriCardStore()
     if (!airiCardStore.activeCard)
       return null
     const bgId = airiCardStore.activeCard.extensions?.airi?.modules?.activeBackgroundId
@@ -217,29 +241,19 @@ export const useBackgroundStore = defineStore('background-entries', () => {
       lookupId = bgId.replace('image-journal-', STORAGE_PREFIX)
     }
 
-    // Return the reactive URL from our map if it exists and the entry is still valid
-    const entryExists = entries.value.has(lookupId)
-    const url = backgroundUrls[lookupId] ?? null
-
-    // NOTICE: We gate the return on entry existence to ensure deleted backgrounds
-    // (removed from other windows) do not keep rendering via a stale cached URL.
-    if (url && entryExists) {
-      return url
-    }
-
     const entry = entries.value.get(lookupId)
-    if (!entry) {
-      console.warn(`[BackgroundStore] activeBackgroundUrl: No entry or URL found for ID "${lookupId}"`)
+    if (!entry || !isBackgroundVisibleToScope(entry, scopeFor())) {
+      console.warn(`[BackgroundStore] activeBackgroundUrl: Background "${lookupId}" is unavailable in the current owner and character scope.`)
       return null
     }
 
-    return null // Should have been caught by backgroundUrls check above if entry is valid
+    return backgroundUrls[lookupId] ?? null
   })
 
   const getCharacterBackgrounds = computed(() => (characterId?: string) => {
+    const scope = scopeFor(characterId)
     const list = Array.from(entries.value.values()).filter((e) => {
-      // Shared (builtin/scene) or Journal/Selfie for specific character
-      return e.type === 'scene' || e.type === 'builtin' || ((e.type === 'journal' || e.type === 'selfie') && characterId && e.characterId === characterId)
+      return isBackgroundVisibleToScope(e, scope)
     })
     return list.map(e => ({
       ...e,
@@ -249,13 +263,13 @@ export const useBackgroundStore = defineStore('background-entries', () => {
 
   // List of available backgrounds for the current character
   const availableBackgrounds = computed(() => {
-    const airiCardStore = useAiriCardStore()
     return getCharacterBackgrounds.value(airiCardStore.activeCardId)
   })
 
   const getCharacterJournalEntries = computed(() => (characterId?: string) => {
+    const scope = scopeFor(characterId)
     return Array.from(entries.value.values()).filter((e) => {
-      return (e.type === 'journal' || e.type === 'selfie') && characterId && e.characterId === characterId
+      return (e.type === 'journal' || e.type === 'selfie') && isBackgroundVisibleToScope(e, scope)
     }).map(e => ({
       ...e,
       url: backgroundUrls[e.id] ?? null,
@@ -264,7 +278,6 @@ export const useBackgroundStore = defineStore('background-entries', () => {
 
   // The 'journal' store functionality needs to access just the journal entries for the active char
   const journalEntries = computed(() => {
-    const airiCardStore = useAiriCardStore()
     return getCharacterJournalEntries.value(airiCardStore.activeCardId)
   })
 
@@ -273,20 +286,19 @@ export const useBackgroundStore = defineStore('background-entries', () => {
     blob: Blob,
     title: string,
     prompt?: string,
-    characterId?: string | null,
+    characterId?: string,
     remixId?: string,
   ) {
-    const airiCardStore = useAiriCardStore()
     const id = `${STORAGE_PREFIX}${nanoid()}`
-
-    // Default to active card if journal and no charId provided
-    const resolvedCharacterId = characterId !== undefined
-      ? characterId
-      : ((type === 'journal' || type === 'selfie') ? airiCardStore.activeCardId : null)
+    const resolvedCharacterId = characterId ?? airiCardStore.activeCardId
+    if (!resolvedCharacterId)
+      throw new Error('User-created backgrounds require an active character.')
 
     const entry: BackgroundEntry = {
+      schemaVersion: 2,
       id,
       type,
+      ownerId: authStore.userId,
       characterId: resolvedCharacterId,
       title: title.trim() || 'Untitled Background',
       blob,
@@ -303,7 +315,6 @@ export const useBackgroundStore = defineStore('background-entries', () => {
       nextEntries.set(id, entry)
       entries.value = nextEntries
 
-      initializeStore()
       await sync()
       return id
     }
@@ -313,7 +324,11 @@ export const useBackgroundStore = defineStore('background-entries', () => {
     }
   }
 
-  async function removeBackground(id: string) {
+  async function removeBackground(id: string, characterId = airiCardStore.activeCardId) {
+    const entry = entries.value.get(id)
+    if (!entry || !canManageBackgroundInScope(entry, scopeFor(characterId)))
+      throw new Error('Background is unavailable in the current owner and character scope.')
+
     try {
       await localforage.removeItem(id)
 
@@ -330,6 +345,10 @@ export const useBackgroundStore = defineStore('background-entries', () => {
         URL.revokeObjectURL(url)
       }
       delete backgroundUrls[id]
+      if (airiCardStore.activeCardId === characterId
+        && airiCardStore.activeCard?.extensions?.airi?.modules?.activeBackgroundId === id) {
+        airiCardStore.updateActiveCardBackground(undefined)
+      }
       broadcastSync(Date.now())
     }
     catch (error) {
@@ -338,12 +357,27 @@ export const useBackgroundStore = defineStore('background-entries', () => {
     }
   }
 
+  async function clearOwner(ownerId: string) {
+    const ownedEntries = Array.from(entries.value.values()).filter(entry => entry.ownerId === ownerId)
+    await Promise.all(ownedEntries.map(entry => localforage.removeItem(entry.id)))
+
+    const nextEntries = new Map(entries.value)
+    for (const entry of ownedEntries) {
+      nextEntries.delete(entry.id)
+      const url = backgroundUrls[entry.id]
+      if (url)
+        URL.revokeObjectURL(url)
+      delete backgroundUrls[entry.id]
+    }
+    entries.value = nextEntries
+    await sync()
+  }
+
   const journalRecentEntries = computed(() => {
     return journalEntries.value.slice(0, 5)
   })
 
   return {
-    entries,
     loading,
     availableBackgrounds,
     getCharacterBackgrounds,
@@ -353,7 +387,13 @@ export const useBackgroundStore = defineStore('background-entries', () => {
     journalRecentEntries,
     addBackground,
     removeBackground,
-    getBackgroundUrl: (id: string) => backgroundUrls[id] ?? null,
+    clearOwner,
+    getBackgroundUrl: (id: string, characterId = airiCardStore.activeCardId) => {
+      const entry = entries.value.get(id)
+      return entry && isBackgroundVisibleToScope(entry, scopeFor(characterId))
+        ? backgroundUrls[id] ?? null
+        : null
+    },
     initializeStore,
   }
 })

@@ -22,7 +22,9 @@ import { useLLM } from './llm'
 import { useLlmToolsetPromptsStore } from './llm-toolset-prompts'
 import { useAiriCardStore } from './modules/airi-card'
 import { useAutonomousArtistryStore } from './modules/artistry-autonomous'
+import { useCompanionStore } from './modules/companion'
 import { useConsciousnessStore } from './modules/consciousness'
+import { useMemoryStore } from './modules/memory'
 
 interface ForkOptions {
   fromSessionId?: string
@@ -71,6 +73,8 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
   const chatStream = useChatStreamStore()
   const chatContext = useChatContextStore()
   const cardStore = useAiriCardStore()
+  const companionStore = useCompanionStore()
+  const memoryStore = useMemoryStore()
   const contextObservability = useContextObservabilityStore()
   const { activeSessionId } = storeToRefs(chatSession)
   const { streamingMessage } = storeToRefs(chatStream)
@@ -152,6 +156,36 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
 
   let lastSendSource: 'text' | 'voice' = 'text'
 
+  function getSessionScope(sessionId: string) {
+    const meta = chatSession.sessionMetas?.[sessionId]
+    if (!meta)
+      return undefined
+
+    return {
+      ownerId: meta.userId,
+      characterId: meta.characterId,
+    }
+  }
+
+  // Preload relationship and identity state when the active session scope becomes known so
+  // prompt composition can remain synchronous and preserve the runtime port.
+  watch(
+    () => {
+      const scope = getSessionScope(activeSessionId.value)
+      return scope ? JSON.stringify([scope.ownerId, scope.characterId]) : ''
+    },
+    () => {
+      const scope = getSessionScope(activeSessionId.value)
+      if (scope) {
+        void Promise.all([
+          companionStore.loadState(scope),
+          companionStore.loadProfile(scope),
+        ])
+      }
+    },
+    { immediate: true },
+  )
+
   const runtime = createChatOrchestratorRuntime({
     session: {
       ensureSession: sessionId => chatSession.ensureSession(sessionId),
@@ -176,7 +210,30 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
     },
     getActiveSessionId: () => activeSessionId.value,
     getActiveProvider: () => activeProvider.value,
-    getSystemPromptSupplement: () => llmToolsetPromptsStore.activeToolsetPrompt,
+    getSystemPromptSupplement: () => {
+      const scope = getSessionScope(activeSessionId.value)
+      const companionContext = scope
+        ? companionStore.promptSupplement(scope, {
+            id: scope.characterId,
+            name: cardStore.activeCard?.name ?? scope.characterId,
+          })
+        : ''
+
+      return [
+        llmToolsetPromptsStore.activeToolsetPrompt,
+        companionContext,
+      ].filter(Boolean).join('\n\n')
+    },
+    memory: {
+      id: memoryStore.backendId,
+      recall: input => memoryStore.recall(input),
+      rememberTurn: input => memoryStore.rememberTurn(input),
+    },
+    getMemoryScope: getSessionScope,
+    getMemoryOptions: () => ({
+      recallLimit: memoryStore.recallLimit,
+      promptCharacterLimit: memoryStore.promptCharacterBudget,
+    }),
     runtimeContextProviders: [
       createMinecraftContext,
     ],
@@ -314,6 +371,11 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
       const autonomousTarget = cardStore.activeCard?.extensions?.airi?.modules?.artistry?.autonomousTarget || 'user'
       if (autonomousTarget === 'user')
         void artistryAutonomousStore.runArtistTask(messageText, toProviderHistory(sessionMessages))
+    },
+    onDurableTurnRemembered: ({ scope, memoryRecord }) => {
+      void companionStore.recordCompletedInteraction(scope, memoryRecord.id).catch((error) => {
+        console.warn('[companion] Failed to persist completed interaction', error)
+      })
     },
     onAssistantTurnReady: ({ messageText, sessionMessages }) => {
       const artistry = cardStore.activeCard?.extensions?.airi?.modules?.artistry

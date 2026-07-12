@@ -4,16 +4,21 @@ import { isStageTamagotchi } from '@proj-airi/stage-shared'
 import { useLive2dParams, useSettingsLive2d } from '@proj-airi/stage-ui-live2d'
 import { useModelStore } from '@proj-airi/stage-ui-three'
 
+import { useAuthStore } from '../stores/auth'
+import { useBackgroundStore } from '../stores/background'
 import { useChatOrchestratorStore } from '../stores/chat'
 import { useChatSessionStore } from '../stores/chat/session-store'
 import { useDisplayModelsStore } from '../stores/display-models'
 import { useMcpStore } from '../stores/mcp'
 import { useAiriCardStore } from '../stores/modules/airi-card'
+import { useCompanionStore } from '../stores/modules/companion'
 import { useConsciousnessStore } from '../stores/modules/consciousness'
 import { useDiscordStore } from '../stores/modules/discord'
 import { useFactorioStore } from '../stores/modules/gaming-factorio'
 import { useMinecraftStore } from '../stores/modules/gaming-minecraft'
 import { useHearingStore } from '../stores/modules/hearing'
+import { useMemoryStore } from '../stores/modules/memory'
+import { usePersonalWorldStore } from '../stores/modules/personal-world'
 import { useSpeechStore } from '../stores/modules/speech'
 import { useTwitterStore } from '../stores/modules/twitter'
 import { useOnboardingStore } from '../stores/onboarding'
@@ -23,6 +28,8 @@ import { useSettings, useSettingsAudioDevice } from '../stores/settings'
 export function useDataMaintenance() {
   const chatStore = useChatSessionStore()
   const chatOrchestrator = useChatOrchestratorStore()
+  const authStore = useAuthStore()
+  const backgroundStore = useBackgroundStore()
   const displayModelsStore = useDisplayModelsStore()
   const providersStore = useProvidersStore()
   const settingsStore = useSettings()
@@ -37,6 +44,9 @@ export function useDataMaintenance() {
   const discordStore = useDiscordStore()
   const factorioStore = useFactorioStore()
   const minecraftStore = useMinecraftStore()
+  const memoryStore = useMemoryStore()
+  const companionStore = useCompanionStore()
+  const personalWorldStore = usePersonalWorldStore()
   const mcpStore = useMcpStore()
   const onboardingStore = useOnboardingStore()
   const airiCardStore = useAiriCardStore()
@@ -59,6 +69,9 @@ export function useDataMaintenance() {
     discordStore.resetState()
     factorioStore.resetState()
     minecraftStore.resetState()
+    memoryStore.resetState()
+    companionStore.resetState()
+    personalWorldStore.resetState()
   }
 
   function deleteAllChatSessions() {
@@ -95,6 +108,10 @@ export function useDataMaintenance() {
   }
 
   async function deleteAllData() {
+    await memoryStore.clearOwner(authStore.userId)
+    await companionStore.clearOwner(authStore.userId)
+    await personalWorldStore.clearOwner(authStore.userId)
+    await backgroundStore.clearOwner(authStore.userId)
     await deleteAllModels()
     await resetProvidersSettings()
     resetModulesSettings()

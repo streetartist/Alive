@@ -387,6 +387,116 @@ interface ControlApiEventEnvelope<TPayload = unknown> {
 
 断线重连后不会补发历史事件。客户端应重新调用 snapshot 端点同步状态。
 
+## Alive 伴侣记忆
+
+这些端点作用于当前用户和角色组成的 scope；所有状态与记忆均同时按用户和角色隔离。
+
+### `GET /v1/alive/profile`
+
+返回当前伴侣身份、关系创建时间、演化中的人格维度与成长阶段。
+
+`identity.birthday` 是当前用户与角色的持久化关系生日；`identity.interests` 与 `identity.values` 来自独立的本地身份档案，不会写回或修改 AIRI Card。
+
+```json
+{
+  "identity": {
+    "id": "character-id",
+    "name": "Alive",
+    "birthday": "2026-07-11T00:00:00.000Z",
+    "interests": ["painting"],
+    "values": ["patient curiosity"]
+  },
+  "personality": {
+    "curiosity": 0.6,
+    "creativity": 0.5,
+    "kindness": 0.5,
+    "humor": 0.5
+  },
+  "growthStage": "child"
+}
+```
+
+### `GET /v1/alive/state`
+
+返回完整持久化伴侣状态，并在存在长期记忆时附带最新一条记录。
+
+响应中的 `state.mood` 是持久化的情绪时间锚点；顶层 `mood` 是请求时按惰性指数衰减解析出的当前投影：
+
+```json
+{
+  "state": {
+    "schemaVersion": 3,
+    "growthPoints": 12,
+    "importantMemoryCount": 1,
+    "positiveFeedbackCount": 2,
+    "negativeFeedbackCount": 0,
+    "mood": {
+      "valence": 0.02,
+      "arousal": 0.33,
+      "updatedAt": 1780000000000
+    }
+  },
+  "mood": {
+    "label": "neutral",
+    "valence": 0.01,
+    "arousal": 0.28,
+    "updatedAt": 1780000000000,
+    "resolvedAt": 1780003600000
+  }
+}
+```
+
+长期 mood 只由完成并写入 durable memory 的交互和未来的显式用户反馈更新。ACT、Live2D 表情、Desktop Life 和回复表演推断不会修改它。
+
+### `GET /v1/alive/memory`
+
+按从新到旧的顺序列出当前伴侣 scope 的长期记忆。
+
+Memory records use schema v2. Conversation turns begin as neutral
+`experience` records. `fact`, `emotion`, and `milestone` kinds plus
+`importance` and `emotionalWeight` are explicit annotations rather than model
+inference.
+
+```json
+{
+  "records": [
+    {
+      "schemaVersion": 2,
+      "id": "turn:session:message",
+      "kind": "milestone",
+      "importance": 1,
+      "emotionalWeight": 0.6,
+      "content": "User: ...\nAIRI: ..."
+    }
+  ]
+}
+```
+
+### `POST /v1/alive/reflection`
+
+立即执行一次反思。当前聊天 provider 会分析经过长度限制且明确标记为不可信数据的记忆证据。如果 provider 或记忆不可用，端点会改为写入本地检查点，并返回 `mode: "local"` 与 `fallbackReason`。
+
+响应结构：
+
+```json
+{
+  "mode": "model",
+  "state": {
+    "interactionCount": 10,
+    "lastReflectedInteractionCount": 10,
+    "growthStage": "child"
+  },
+  "reflection": {
+    "learned": ["The user may enjoy creative discussions"],
+    "personalityChanges": {
+      "curiosity": 0.02
+    }
+  }
+}
+```
+
+每完成十轮交互会自动触发相同的反思流程。反思在本轮对话写入长期记忆之后运行，因此检查点不会错误声称覆盖尚未分析的对话。
+
 ## Chat
 
 ### `POST /v1/chat/send`
@@ -1175,6 +1285,10 @@ Request:
 | `GET` | `/v1/capabilities` | Yes | 能力列表 |
 | `GET` | `/v1/status` | Yes | 总状态快照 |
 | `GET` | `/v1/events` | Yes | SSE 事件流 |
+| `GET` | `/v1/alive/profile` | Yes | 当前伴侣档案 |
+| `GET` | `/v1/alive/state` | Yes | 持久化伴侣状态 |
+| `GET` | `/v1/alive/memory` | Yes | 当前 scope 的长期记忆 |
+| `POST` | `/v1/alive/reflection` | Yes | 执行伴侣反思 |
 | `POST` | `/v1/chat/send` | Yes | 发送聊天消息 |
 | `POST` | `/v1/chat/spotlight` | Yes | Spotlight 入口发送 |
 | `POST` | `/v1/chat/interrupt` | Yes | 中断排队发送/前台 stream |

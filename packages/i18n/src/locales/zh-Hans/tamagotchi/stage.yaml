@@ -32,6 +32,12 @@ docs:
   'logging-in': 登录中...
   'account': 账号
   'logout': 退出登录
+'companion-status':
+  loading: 正在加载伙伴状态
+  unavailable: 伙伴状态暂时不可用，可打开伙伴成长查看详情
+  open: '打开伙伴成长：{stage}，关系值 {score}/100，心情 {mood}'
+  tooltip: '{stage} · 关系值 {score}/100 · {mood} · 活跃度 {energy}%'
+
 widgets:
   close: 关闭小部件
   empty:

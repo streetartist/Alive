@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { WIP } from '@proj-airi/stage-ui/components'
+import MemoryManager from './components/MemoryManager.vue'
 </script>
 
 <template>
-  <WIP />
+  <MemoryManager />
 </template>
 
 <route lang="yaml">

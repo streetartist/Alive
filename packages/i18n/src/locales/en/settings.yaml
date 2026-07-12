@@ -417,9 +417,343 @@ pages:
     import_invalid_file: Card package file is invalid
     upload: Upload
     upload_desc: Click or drag an AIRI card package to import
+  companion:
+    title: Companion Growth
+    description: See how your shared relationship, personality, and reflections are developing
+    intro: A local, persistent view of how your relationship with {name} is growing.
+    loading: Loading companion state...
+    stages:
+      seed: Seed
+      child: Growing
+      companion: Companion
+      independent: Independent
+    actions:
+      refresh: Refresh
+      openMemory: View memories
+      openWorld: Open personal world
+      reflect: Reflect now
+    overview:
+      relationshipWith: Relationship with {name}
+      relationshipScore: 'Relationship score: {score}/100'
+      currentMood: '{mood} · energy {energy}%'
+      moodUpdatedAt: 'Mood last changed: {date}'
+      nextStage: '{count} more growth points until {stage}'
+      finalStage: This relationship has reached its current final growth stage
+      interactions: Interactions
+      growthPoints: Growth points
+      importantMemories: Important memories
+      feedback: Feedback (+ / -)
+      memories: Memories
+      reflections: Reflections
+      relationship: Relationship
+    moods:
+      calm: Calm
+      neutral: Neutral
+      curious: Curious
+      happy: Happy
+      sad: Low
+      tense: Tense
+    personality:
+      title: Evolving personality
+      description: These traits change gradually through validated reflection without replacing the character card.
+      traits:
+        curiosity: Curiosity
+        creativity: Creativity
+        kindness: Kindness
+        humor: Humor
+    identity:
+      title: Growing identity
+      description: Relationship-owned interests and values that make this companion distinct from the original character card.
+      birthday: Relationship birthday
+      birthdayDescription: The first day this local companion identity was created for you and this character.
+      interests:
+        label: Interests
+        description: Topics and activities this companion has made part of their lasting identity.
+        placeholder: e.g. watercolor painting
+      values:
+        label: Values
+        description: Stable principles that should guide growth without replacing the authored personality.
+        placeholder: e.g. patient curiosity
+      reset: Reset changes
+      save: Save identity
+    portability:
+      title: Companion data
+      description: Back up or restore the local relationship data owned by you and {name}.
+      exclusions: Backups exclude the character card, chat sessions, global settings, and image files. Creative projects keep only their existing image references.
+      actions:
+        export: Export backup
+        restore: Restore backup
+        clear: Clear this companion
+      restore:
+        label: Restore from a JSON backup
+        placeholder: Choose a companion backup
+        description: Restoring completely replaces the current companion scope and rejects backups from another account or character.
+      clear:
+        title: Start this companion relationship over
+        description: Clears the identity, relationship growth, memories, reflections, and Personal World for you and {name}. The character card and image library remain unchanged.
+      confirm:
+        restore: Replace current data
+        clear: Clear companion data
+      status:
+        exported: Companion backup exported.
+        imported: 'Backup restored: {memories} memories, {entries} world entries, and {projects} projects.'
+        cleared: Companion data for {name} was cleared.
+      errors:
+        title: Companion data operation failed
+        export: Failed to export companion data
+        import: Failed to restore companion data
+        clear: Failed to clear companion data
+    life:
+      title: Desktop Life
+      description: Let AIRI show restrained local behaviors without creating messages or interrupting an active conversation.
+      personalization: Personalized wording only uses interests you explicitly save and tentative observations from the latest reflection. AIRI does not treat either as certain facts.
+      enabled:
+        label: Enable Desktop Life
+        description: Allow occasional expressions and short stage bubbles when AIRI is not busy.
+      morning:
+        label: Morning greeting
+        description: Greet once between 7:00 and 11:00 local time when you are active.
+      idle:
+        label: Idle behavior delay
+        description: Wait this long without user activity before showing a curious or creative behavior.
+        value: '{count} minutes'
+      messages:
+        morning-greeting: Good morning. I am glad to see you again today.
+        idle-curious: I wonder what we might explore together next.
+        idle-creative: I am quietly arranging a few new ideas.
+        resting: I will stay here quietly with you for a while.
+      personalizedMessages:
+        morning-greeting:
+          interest: 'Good morning. Maybe we can make a little time for {value} today.'
+          tentative-observation: 'Good morning. I was thinking about something I may have learned: {value}'
+        idle-curious:
+          interest: 'I wonder whether we might return to {value} sometime.'
+          tentative-observation: 'I may have noticed something worth revisiting: {value}'
+        idle-creative:
+          interest: 'I am quietly thinking of a small idea around {value}.'
+          tentative-observation: 'A possible thought from reflection is still with me: {value}'
+    reflections:
+      title: Reflection journal
+      description: Interaction checkpoints and next-day catch-up record tentative lessons and bounded personality changes.
+      checkpoint: 'Reflection through interaction {count}'
+      localCheckpoint: A local checkpoint was recorded, but no model-backed observations were available.
+      empty:
+        title: No reflections yet
+        description: AIRI reflects after every 10 completed interactions and catches up once on the next day when interactions remain unreviewed. You can also request one now.
+    feedback:
+      reflectedWithModel: Reflection completed with the active model.
+      reflectedLocally: A safe local reflection was recorded because model reflection was unavailable.
+      notDue: No new interactions need reflection yet.
+      identitySaved: Companion identity saved.
+    feedbackActions:
+      group: Response feedback
+      positive: This response felt right
+      negative: This response needs adjustment
+    errors:
+      title: Companion state could not be updated
+      load: Failed to load companion state
+      reflect: Failed to complete reflection
+      identity: Failed to save companion identity
+  world:
+    title: Personal World
+    description: A growing home for journals, lessons, creations, and favorite moments
+    intro: Explore the personal world that you and {name} are building together.
+    loading: Loading personal world...
+    actions:
+      refresh: Refresh
+      openCompanion: View companion growth
+    room:
+      title: My Room
+      description: Choose a shared scene or one of your creations as this character's living space.
+      upload: Add a room image
+      clear: Clear room
+      assetsEmpty: Add a room image or create artwork to begin decorating this space.
+      empty:
+        title: This room is waiting for you
+        description: Pick an image below to give this companion a place of their own.
+      types:
+        builtin: Built-in room
+        scene: Room image
+        journal: Shared creation
+        selfie: Selfie
+    composer:
+      title: Write in the journal
+      description: Add a local note to the world you share with this character.
+      titleLabel: Title
+      titlePlaceholder: A moment worth naming
+      contentLabel: Journal entry
+      contentPlaceholder: What happened, and why did it matter?
+      save: Save journal entry
+    journal:
+      title: My Journal
+      description: Notes and reflection checkpoints collected over time.
+      empty: No journal entries yet. Write the first one above.
+    learned:
+      title: Things I Learned
+      description: Tentative observations captured from model-backed reflections. They remain observations until you explicitly confirm them.
+      empty: Learned observations will appear after a reflection has something new to record.
+      promotion:
+        description: Confirm the original observation as part of this companion's durable identity. The reflection entry remains unchanged.
+        interest: Confirm as interest
+        interestConfirmed: Confirmed interest
+        value: Confirm as value
+        valueConfirmed: Confirmed value
+    projects:
+      title: Creative Projects
+      description: Ideas and works in progress that you and this companion are developing together.
+      loading: Loading creative projects...
+      empty: No creative projects yet. Start with an idea above.
+      updated: 'Updated {date}'
+      noLinkedCreations: No existing creations are linked yet.
+      missingCreation: Creation unavailable
+      status:
+        idea: Idea
+        active: In progress
+        completed: Completed
+      form:
+        newTitle: Start a creative project
+        newDescription: Give an idea a durable place to evolve, with optional links to existing creations.
+        title: Project title
+        titlePlaceholder: A small collection, story, or experiment
+        description: Project description
+        descriptionPlaceholder: What are you making together, and what would make it feel complete?
+        status: Project status
+        creations: Linked creations
+        creationCount: '{count}/{limit} selected'
+        noCreations: Existing image-journal creations can be linked when they become available.
+        missingCreations: Some linked creations are no longer available. Their references remain until you remove them.
+        removeMissing: 'Remove unavailable reference: {id}'
+        create: Create project
+        save: Save changes
+        cancel: Cancel
+      actions:
+        edit: Edit project
+        remove: Delete project
+        removeConfirm: Yes, delete project
+        cancelRemove: Keep project
+    creations:
+      title: Things We Made
+      description: Drawings and selfies already created for this character.
+      empty: Creations from the image journal will appear here.
+      prompt: Prompt
+    favorites:
+      title: Favorite Moments
+      description: Durable memories you explicitly marked as important milestones in this world.
+      empty: Save a memory below to begin this collection.
+    memories:
+      title: Memories to revisit
+      description: Choose which durable memories deserve a place among your favorite moments.
+      empty: There are no durable memories available for this character yet.
+      save: Save as milestone favorite
+      saved: Saved
+    source:
+      reflection: Reflection
+      memory: Memory
+      manual: Written by you
+    feedback:
+      journalSaved: Journal entry saved.
+      favoriteSaved: Favorite moment saved.
+      interestConfirmed: The observation was explicitly added to companion interests.
+      valueConfirmed: The observation was explicitly added to companion values.
+      projectCreated: Creative project created.
+      projectUpdated: Creative project updated.
+      projectRemoved: Creative project deleted. Linked creations were kept.
+    errors:
+      title: Personal world could not be updated
+      load: Failed to load the personal world
+      saveJournal: Failed to save the journal entry
+      saveFavorite: Failed to save the favorite moment
+      confirmIdentity: Failed to confirm the observation in companion identity
+      identityLimit: The selected identity list is full. Remove an existing item before confirming another observation.
+      uploadRoom: Failed to add the room image
+      loadProjects: Failed to load creative projects
+      saveProject: Failed to save the creative project
+      removeProject: Failed to delete the creative project
   memory:
-    description: Where memories got stored, and organized
     title: Memory
+    description: Review and manage what AIRI remembers for the active character
+    status:
+      enabled: Memory is on
+      enabledDescription: AIRI can save and recall durable memories for the active character
+      disabled: Memory is paused
+      disabledDescription: Existing memories remain available to review or delete, but AIRI will not save or recall them
+    scope:
+      title: Character-scoped memory
+      description: Memories are isolated by account and active character
+      activeCharacter: 'Active character: {characterId}'
+    controls:
+      title: Memory controls
+      description: Choose whether AIRI remembers conversations and how much recalled context reaches a reply
+      enabled:
+        label: Enable durable memory
+        description: Allow AIRI to save completed conversations and recall relevant details later
+      recallLimit:
+        label: Maximum memories per reply
+        description: Limits how many relevant records can be considered for one response
+        value: '{count} memories'
+      promptCharacterBudget:
+        label: Recalled context budget
+        description: Caps the number of memory characters added to a model prompt
+        value: '{count} characters'
+      refresh: Refresh memories
+      clear: Forget all memories
+      clearConfirm: Yes, forget all
+      clearCancel: Keep memories
+    records:
+      title: Remembered details
+      description: Review the contextual evidence AIRI may recall for this character
+      count: '{count} stored memories'
+      loading: Loading memories…
+      empty:
+        title: No memories yet
+        description: Relevant details from completed conversations will appear here when durable memory is enabled
+      error:
+        title: Memories could not be loaded
+        description: Check the memory backend and try again
+        retry: Try again
+      kind:
+        fact: Fact
+        experience: Experience
+        emotion: Emotional memory
+        milestone: Milestone
+      annotate: Edit memory meaning
+      annotationKind: Memory type
+      importance: Importance (0-100)
+      emotionalWeight: Emotional weight (-100 to 100)
+      importanceValue: 'Importance: {value}%'
+      emotionalWeightValue: 'Emotional weight: {value}'
+      annotationDescription: These are explicit annotations. AIRI does not infer them automatically from the memory text.
+      annotationSave: Save annotation
+      annotationCancel: Cancel
+      source:
+        chat-turn: Conversation
+        character-book: Character card
+        system-event: Companion event
+      milestones:
+        growthStage: 'Relationship milestone: reached the {stage} stage.'
+      experiences:
+        projectCompleted: |-
+          Creative project completed: {title}
+          {description}
+      created: Created
+      updated: Updated
+      lastAccessed: Last recalled
+      neverAccessed: Never recalled
+      recallCount: Recalls
+      accessCount: '{count} successful recalls'
+      forget: Forget
+      forgetConfirm: Yes, forget it
+      forgetCancel: Keep it
+      ariaLabel: '{kind} memory created {date}'
+    feedback:
+      forgotten: Memory forgotten
+      cleared: All memories for this character were forgotten
+      annotated: Memory annotation saved
+    errors:
+      load: Failed to load memories
+      forget: Failed to forget this memory
+      clear: Failed to clear memories
+      annotate: Failed to annotate this memory
   data:
     title: Data
     description: Manage stored AIRI data, exports, and resets
@@ -697,12 +1031,6 @@ pages:
             verbose-json-unsupported: >-
               Your provider did not return verbose_json segments. Confidence
               filtering had no effect on the last transcription.
-    memory-long-term:
-      description: Long-term memory specific settings and management
-      title: Long-Term Memory
-    memory-short-term:
-      description: Short-term memory specific settings and management
-      title: Short-Term Memory
     messaging-discord:
       description: Chat & voice chat over Discord
       title: Discord
