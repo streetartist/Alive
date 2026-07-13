@@ -63,8 +63,6 @@ jobs:
           mv ./docs/.vitepress/dist ./apps/stage-web/dist/docs
           cp ./apps/stage-web/dist/docs/sitemap.xml ./apps/stage-web/dist/sitemap.xml
 
-          pnpm -F @proj-airi/stage-ui run story:build
-          mv ./packages/stage-ui/.histoire/dist ./apps/stage-web/dist/ui
         env:
           S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
           S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
