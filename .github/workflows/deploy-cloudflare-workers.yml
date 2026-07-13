@@ -63,6 +63,12 @@ jobs:
           mv ./docs/.vitepress/dist ./apps/stage-web/dist/docs
           cp ./apps/stage-web/dist/docs/sitemap.xml ./apps/stage-web/dist/sitemap.xml
 
+      # NOTICE: Workers rejects individual static assets larger than 25 MiB.
+      # The upstream deployment moves these optional demo assets to external
+      # object storage, which this fork does not configure yet.
+      - name: Remove assets exceeding the Workers upload limit
+        run: find ./apps/stage-web/dist -type f -size +25M -print -delete
+
         env:
           S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
           S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
