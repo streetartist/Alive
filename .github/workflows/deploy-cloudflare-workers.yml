@@ -13,6 +13,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: ${{ vars.ENABLE_CLOUDFLARE_DEPLOYMENTS == 'true' }}
     name: Deploy - stage-web
     runs-on: ubuntu-latest
     permissions:
@@ -21,7 +22,7 @@ jobs:
 
     environment:
       name: Production
-      url: https://airi.moeru.ai/docs/
+      url: https://alive-stage-web.flash12332111.workers.dev/docs/
 
     steps:
       - uses: actions/checkout@v6

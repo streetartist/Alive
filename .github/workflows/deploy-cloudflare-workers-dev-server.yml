@@ -124,7 +124,7 @@ jobs:
         with:
           apiToken: ${{ secrets.MOERU_CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.MOERU_CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy ./apps/ui-server-auth/dist --project-name=moeru-ai-airi-auth --branch=server-dev
+          command: pages deploy ./apps/ui-server-auth/dist --project-name=alive-auth --branch=server-dev
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Print preview URL

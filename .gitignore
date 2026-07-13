@@ -32,6 +32,8 @@ lerna-debug.log*
 *.wav
 *.ogg
 *.mp3
+!docs/content/en/blog/DevLog-2025.03.20/assets/ashley-pitch-test.mp3
+!docs/content/zh-Hans/blog/DevLog-2025.03.20/assets/ashley-pitch-test.mp3
 
 # Credentials
 cert*/

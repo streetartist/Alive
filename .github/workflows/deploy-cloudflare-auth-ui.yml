@@ -13,6 +13,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: ${{ vars.ENABLE_CLOUDFLARE_DEPLOYMENTS == 'true' }}
     name: Deploy - ui-server-auth
     runs-on: ubuntu-latest
     permissions:
@@ -21,7 +22,7 @@ jobs:
 
     environment:
       name: Auth Production
-      url: https://accounts.airi.build/ui/
+      url: https://alive-auth.pages.dev/ui/
 
     steps:
       - uses: actions/checkout@v6
@@ -64,5 +65,5 @@ jobs:
         with:
           apiToken: ${{ secrets.MOERU_CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.MOERU_CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy ./apps/ui-server-auth/dist --project-name=moeru-ai-airi-auth --branch=main
+          command: pages deploy ./apps/ui-server-auth/dist --project-name=alive-auth --branch=main
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
