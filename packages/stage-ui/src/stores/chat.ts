@@ -167,25 +167,6 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
     }
   }
 
-  // Preload relationship and identity state when the active session scope becomes known so
-  // prompt composition can remain synchronous and preserve the runtime port.
-  watch(
-    () => {
-      const scope = getSessionScope(activeSessionId.value)
-      return scope ? JSON.stringify([scope.ownerId, scope.characterId]) : ''
-    },
-    () => {
-      const scope = getSessionScope(activeSessionId.value)
-      if (scope) {
-        void Promise.all([
-          companionStore.loadState(scope),
-          companionStore.loadProfile(scope),
-        ])
-      }
-    },
-    { immediate: true },
-  )
-
   const runtime = createChatOrchestratorRuntime({
     session: {
       ensureSession: sessionId => chatSession.ensureSession(sessionId),
@@ -210,14 +191,19 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
     },
     getActiveSessionId: () => activeSessionId.value,
     getActiveProvider: () => activeProvider.value,
-    getSystemPromptSupplement: () => {
-      const scope = getSessionScope(activeSessionId.value)
-      const companionContext = scope
-        ? companionStore.promptSupplement(scope, {
-            id: scope.characterId,
-            name: cardStore.activeCard?.name ?? scope.characterId,
-          })
-        : ''
+    getSystemPromptSupplement: async (sessionId) => {
+      const scope = getSessionScope(sessionId)
+      let companionContext = ''
+      if (scope) {
+        try {
+          companionContext = await companionStore.loadPromptSupplement(scope)
+        }
+        catch (error) {
+          // Companion continuity is optional prompt context. A local persistence
+          // failure must not prevent the user from sending the underlying chat.
+          console.warn('[companion] Failed to load prompt supplement', error)
+        }
+      }
 
       return [
         llmToolsetPromptsStore.activeToolsetPrompt,
@@ -372,10 +358,13 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
       if (autonomousTarget === 'user')
         void artistryAutonomousStore.runArtistTask(messageText, toProviderHistory(sessionMessages))
     },
-    onDurableTurnRemembered: ({ scope, memoryRecord }) => {
-      void companionStore.recordCompletedInteraction(scope, memoryRecord.id).catch((error) => {
+    onDurableTurnRemembered: async ({ scope, memoryRecord }) => {
+      try {
+        await companionStore.recordCompletedInteraction(scope, memoryRecord.id)
+      }
+      catch (error) {
         console.warn('[companion] Failed to persist completed interaction', error)
-      })
+      }
     },
     onAssistantTurnReady: ({ messageText, sessionMessages }) => {
       const artistry = cardStore.activeCard?.extensions?.airi?.modules?.artistry

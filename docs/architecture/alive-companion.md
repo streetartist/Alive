@@ -34,8 +34,10 @@ Every durable companion record is scoped by both `ownerId` and `characterId`.
 Changing the signed-in user or active character therefore changes the companion
 scope instead of reusing another relationship's state.
 
-The AIRI Card remains authored character configuration. Companion identity,
-learned observations, relationship state, and mood are stored separately and
+The AIRI Card remains authored character configuration and owns the character's
+authored ID and name. The durable identity profile (relationship birthday,
+confirmed interests, and confirmed values), learned observations, evolving
+personality overlay, relationship state, and mood are stored separately and
 must never overwrite the card.
 
 ## Durable interaction flow
@@ -44,12 +46,14 @@ must never overwrite the card.
 2. The memory runtime persists the completed turn.
 3. Only after persistence succeeds, the durable-turn callback records the
    interaction growth event using the memory record ID.
-4. The next prompt receives bounded relationship state and separately retrieved
-   memories.
+4. The next prompt waits for the exact session's owner-and-character companion
+   scope, then receives bounded relationship state and separately retrieved memories.
 5. A reflection runs after the interaction checkpoint, or once on the next
    local day when earlier interactions remain unreviewed.
 6. A new reflection is copied idempotently into Personal World journal and
-   learned entries.
+   learned entries. Later reflection checks replay the latest deterministic
+   reflection ID so a Personal World write failure is repaired even when no new
+   reflection is due.
 
 Memory decline, persistence failure, empty responses, streaming text, and
 Desktop Life presentation never count as durable interactions.
@@ -75,6 +79,12 @@ durable interaction + explicit important memory + message-bound feedback = growt
 Negative feedback may reduce relationship and mood, but it does not erase
 accumulated growth or reverse a growth stage. Important memories are explicit
 Favorite Moments; the application does not silently infer importance.
+
+Companion Growth presents the latest durable growth events as a read-only
+relationship timeline. It renders the persisted event type, timestamp, and
+growth/relationship deltas without exposing encoded source IDs. The timeline
+uses the bounded `recentGrowthEvents` presentation window; the separate
+`processedGrowthEventIds` ledger remains the authority for idempotency.
 
 When a relationship reaches Child, Companion, or Independent for the first
 time, the memory backend records a deterministic `system-event` milestone for
@@ -105,6 +115,10 @@ Desktop Life is transient presentation. Morning, curious, creative, and resting
 behaviors may change animation, expression, or the stage bubble, but they do not
 create chat messages or durable memories. Busy, hidden, disabled, and cooldown
 states suppress autonomous behavior.
+
+Morning and cooldown scheduler history is persisted per owner and character.
+Ownerless character-only history is not migrated because assigning it to a new
+account would violate companion isolation; upgrading starts a fresh schedule.
 
 The main desktop stage keeps a compact, read-only companion status beside the
 controls island. It shows the current growth stage and relationship score, with
@@ -141,10 +155,15 @@ Personal World currently provides:
 - explicit favorite memories;
 - creative projects with idea, active, and completed lifecycle states;
 - existing image-journal creations; and
-- a room backed by the character's existing background selection.
+- a scoped active room that overrides the AIRI Card's authored background default.
 
 Images remain owned by the existing background journal. Personal World stores
 references and text metadata instead of copying image blobs.
+
+The room selection is isolated by `ownerId + characterId`. A missing Personal
+World selection falls back to the AIRI Card's authored `activeBackgroundId`.
+The explicit `none` selection suppresses that fallback, so clearing a room does
+not mutate authored card configuration or cause the default to reappear.
 
 Creative projects reference existing journal/selfie creation IDs. The same
 creation may belong to several projects. Deleting a project never deletes its
@@ -175,12 +194,13 @@ details.
 Companion Growth provides a versioned JSON backup for one exact
 `ownerId + characterId` scope. The archive includes the companion identity
 profile, relationship and reflection state, durable memories, Personal World
-text entries, and creative project records.
+text entries, creative project records, and its active-room asset reference.
 
 Backups intentionally exclude character cards, chat sessions, provider and
 global settings, and background-journal image blobs. Creative projects retain
-their existing `creationIds` as external references; restoring or clearing a
-companion never copies or deletes those assets.
+their existing `creationIds` and the active room retains its background ID as
+external references; restoring or clearing a companion never copies or deletes
+those assets.
 
 Restore validates the archive envelope, current record schemas, duplicate IDs,
 and every nested ownership scope before changing storage. Archives cannot be

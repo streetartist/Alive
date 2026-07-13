@@ -1,5 +1,8 @@
 import type { MemoryScope } from '@proj-airi/memory'
 
+/** Explicitly suppresses the character-authored room fallback for one Personal World scope. */
+export const PERSONAL_WORLD_NO_ACTIVE_ROOM_ID = 'none'
+
 /** Categories persisted in a companion's Personal World. */
 export type PersonalWorldEntryKind = 'journal' | 'learned' | 'favorite'
 

@@ -48,6 +48,7 @@ const forkSessionMock = vi.fn()
 const ensureSessionMock = vi.fn()
 const rememberTurnMock = vi.fn()
 const recordCompletedInteractionMock = vi.fn()
+const loadCompanionPromptSupplementMock = vi.fn()
 const runArtistTaskMock = vi.fn()
 
 const activeSessionIdRef = ref('session-1')
@@ -169,7 +170,7 @@ vi.mock('./modules/companion', () => ({
   useCompanionStore: () => ({
     loadState: vi.fn().mockResolvedValue(undefined),
     loadProfile: vi.fn().mockResolvedValue(undefined),
-    promptSupplement: vi.fn(() => ''),
+    loadPromptSupplement: loadCompanionPromptSupplementMock,
     recordCompletedInteraction: recordCompletedInteractionMock,
   }),
 }))
@@ -204,8 +205,10 @@ describe('chat orchestrator contract', () => {
     ensureSessionMock.mockReset()
     rememberTurnMock.mockReset()
     recordCompletedInteractionMock.mockReset()
+    loadCompanionPromptSupplementMock.mockReset()
     runArtistTaskMock.mockReset()
     recordCompletedInteractionMock.mockResolvedValue(undefined)
+    loadCompanionPromptSupplementMock.mockResolvedValue('')
     rememberTurnMock.mockImplementation(async input => ({
       schemaVersion: 2,
       id: `memory:${input.idempotencyKey}`,
@@ -249,19 +252,31 @@ describe('chat orchestrator contract', () => {
   })
 
   it('records companion interaction only after durable memory accepts the turn', async () => {
+    let releaseGrowth!: () => void
+    recordCompletedInteractionMock.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        releaseGrowth = resolve
+      })
+    })
     llmStreamMock.mockImplementation(async (_model: string, _chatProvider: ChatProvider, _messages: Message[], options: any) => {
       await options.onStreamEvent({ type: 'text-delta', text: 'durable reply' })
       await options.onStreamEvent({ type: 'finish', finishReason: 'stop' })
     })
 
     const store = useChatOrchestratorStore()
-    await store.ingest('durable user turn', {
+    let ingestCompleted = false
+    const ingest = store.ingest('durable user turn', {
       model: 'gpt-test',
       chatProvider: provider,
+    }).then(() => {
+      ingestCompleted = true
     })
 
+    await vi.waitFor(() => {
+      expect(recordCompletedInteractionMock).toHaveBeenCalledTimes(1)
+    })
     expect(rememberTurnMock).toHaveBeenCalledTimes(1)
-    expect(recordCompletedInteractionMock).toHaveBeenCalledTimes(1)
+    expect(ingestCompleted).toBe(false)
     expect(recordCompletedInteractionMock).toHaveBeenCalledWith(
       { ownerId: 'owner-1', characterId: 'character-1' },
       expect.stringContaining('memory:'),
@@ -269,6 +284,35 @@ describe('chat orchestrator contract', () => {
     expect(rememberTurnMock.mock.invocationCallOrder[0]).toBeLessThan(
       recordCompletedInteractionMock.mock.invocationCallOrder[0],
     )
+
+    releaseGrowth()
+    await ingest
+
+    expect(ingestCompleted).toBe(true)
+  })
+
+  it('treats companion growth failure as a warning after durable memory succeeds', async () => {
+    const growthError = new Error('growth write failed')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    recordCompletedInteractionMock.mockRejectedValueOnce(growthError)
+    llmStreamMock.mockImplementation(async (_model: string, _chatProvider: ChatProvider, _messages: Message[], options: any) => {
+      await options.onStreamEvent({ type: 'text-delta', text: 'durable reply' })
+      await options.onStreamEvent({ type: 'finish', finishReason: 'stop' })
+    })
+
+    const store = useChatOrchestratorStore()
+    await expect(store.ingest('durable user turn', {
+      model: 'gpt-test',
+      chatProvider: provider,
+    })).resolves.toBeUndefined()
+
+    expect(rememberTurnMock).toHaveBeenCalledTimes(1)
+    expect(recordCompletedInteractionMock).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(
+      '[companion] Failed to persist completed interaction',
+      growthError,
+    )
+    warn.mockRestore()
   })
 
   it('keeps assistant artistry independent when durable memory declines the turn', async () => {
@@ -299,6 +343,58 @@ describe('chat orchestrator contract', () => {
     expect(recordCompletedInteractionMock).not.toHaveBeenCalled()
     expect(runArtistTaskMock).toHaveBeenCalledTimes(1)
     expect(runArtistTaskMock).toHaveBeenCalledWith('artistry reply', expect.any(Array))
+  })
+
+  it('waits for the target companion scope before composing the first prompt', async () => {
+    // ROOT CAUSE:
+    //
+    // Companion state was preloaded by an unawaited active-session watcher, while
+    // prompt composition synchronously read whichever scope happened to be active.
+    // A first send could therefore omit companion context, and a queued or forked
+    // send could read another session's relationship.
+    //
+    // The runtime now resolves the supplement asynchronously for the exact queued
+    // session before it composes provider messages.
+    sessionMetas['session-2'] = {
+      id: 'session-2',
+      userId: 'owner-2',
+      characterId: 'character-2',
+    }
+    sessionMessages['session-2'] = [{ role: 'system', content: 'target system prompt', createdAt: 1, id: 'target-system' }]
+
+    let releaseSupplement: ((value: string) => void) | undefined
+    loadCompanionPromptSupplementMock.mockImplementationOnce(async () => await new Promise<string>((resolve) => {
+      releaseSupplement = resolve
+    }))
+
+    let composedMessages: Message[] = []
+    llmStreamMock.mockImplementation(async (_model: string, _chatProvider: ChatProvider, messages: Message[], options: any) => {
+      composedMessages = messages
+      await options.onStreamEvent({ type: 'text-delta', text: 'ready' })
+      await options.onStreamEvent({ type: 'finish', finishReason: 'stop' })
+    })
+
+    const store = useChatOrchestratorStore()
+    const send = store.ingest('first target message', {
+      model: 'gpt-test',
+      chatProvider: provider,
+    }, 'session-2')
+
+    await vi.waitFor(() => {
+      expect(loadCompanionPromptSupplementMock).toHaveBeenCalledWith({
+        ownerId: 'owner-2',
+        characterId: 'character-2',
+      })
+    })
+    expect(llmStreamMock).not.toHaveBeenCalled()
+
+    releaseSupplement?.('Target companion relationship context.')
+    await send
+
+    expect(composedMessages[0]).toMatchObject({
+      role: 'system',
+      content: 'target system prompt\n\nPlugin toolset guidance.\n\nTarget companion relationship context.',
+    })
   })
 
   it('emits second turn analytics from chat sends', async () => {

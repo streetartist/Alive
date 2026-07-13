@@ -12,6 +12,7 @@ import { useDisplayModelsStore } from '../stores/display-models'
 import { useMcpStore } from '../stores/mcp'
 import { useAiriCardStore } from '../stores/modules/airi-card'
 import { useCompanionStore } from '../stores/modules/companion'
+import { useCompanionLifeStore } from '../stores/modules/companion-life'
 import { useConsciousnessStore } from '../stores/modules/consciousness'
 import { useDiscordStore } from '../stores/modules/discord'
 import { useFactorioStore } from '../stores/modules/gaming-factorio'
@@ -45,6 +46,7 @@ export function useDataMaintenance() {
   const factorioStore = useFactorioStore()
   const minecraftStore = useMinecraftStore()
   const memoryStore = useMemoryStore()
+  const companionLifeStore = useCompanionLifeStore()
   const companionStore = useCompanionStore()
   const personalWorldStore = usePersonalWorldStore()
   const mcpStore = useMcpStore()
@@ -70,6 +72,7 @@ export function useDataMaintenance() {
     factorioStore.resetState()
     minecraftStore.resetState()
     memoryStore.resetState()
+    companionLifeStore.resetState()
     companionStore.resetState()
     personalWorldStore.resetState()
   }
@@ -109,6 +112,7 @@ export function useDataMaintenance() {
 
   async function deleteAllData() {
     await memoryStore.clearOwner(authStore.userId)
+    companionLifeStore.clearOwner(authStore.userId)
     await companionStore.clearOwner(authStore.userId)
     await personalWorldStore.clearOwner(authStore.userId)
     await backgroundStore.clearOwner(authStore.userId)

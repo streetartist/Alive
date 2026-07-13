@@ -2,6 +2,7 @@ import type { BackgroundEntry, BackgroundScope } from './background-scope'
 
 import localforage from 'localforage'
 
+import { PERSONAL_WORLD_NO_ACTIVE_ROOM_ID } from '@proj-airi/companion-core'
 import { useBroadcastChannel } from '@vueuse/core'
 import { nanoid } from 'nanoid'
 import { defineStore } from 'pinia'
@@ -17,6 +18,7 @@ import {
   migrateBackgroundEntry,
 } from './background-scope'
 import { useAiriCardStore } from './modules/airi-card'
+import { usePersonalWorldStore } from './modules/personal-world'
 
 export type { BackgroundEntry } from './background-scope'
 
@@ -46,6 +48,7 @@ export const useBackgroundStore = defineStore('background-entries', () => {
   const STORAGE_PREFIX = 'bg-'
   const authStore = useAuthStore()
   const airiCardStore = useAiriCardStore()
+  const personalWorldStore = usePersonalWorldStore()
 
   const entries = ref<Map<string, BackgroundEntry>>(new Map())
   const loading = ref(true)
@@ -226,12 +229,40 @@ export const useBackgroundStore = defineStore('background-entries', () => {
   // Auto-init once
   initializeStore()
 
+  watch(
+    () => [authStore.userId, airiCardStore.activeCardId] as const,
+    async ([ownerId, characterId]) => {
+      if (!characterId)
+        return
+      try {
+        await personalWorldStore.loadActiveRoomId({ ownerId, characterId })
+      }
+      catch (error) {
+        console.warn('[BackgroundStore] Failed to load the scoped Personal World room.', error)
+      }
+    },
+    { immediate: true },
+  )
+
+  /** Personal World selection overrides the character-authored background default for the active scope. */
+  const activeBackgroundId = computed(() => {
+    if (!airiCardStore.activeCard)
+      return undefined
+    const scope = scopeFor()
+    if (!personalWorldStore.hasLoadedActiveRoom(scope))
+      return undefined
+    return personalWorldStore.getActiveRoomId(scope)
+      ?? airiCardStore.activeCard.extensions?.airi?.modules?.activeBackgroundId
+  })
+
+  async function setActiveBackground(backgroundId?: string, scope = scopeFor()) {
+    await personalWorldStore.setActiveRoomId(scope, backgroundId)
+  }
+
   // Find the active background URL for the current character
   const activeBackgroundUrl = computed(() => {
-    if (!airiCardStore.activeCard)
-      return null
-    const bgId = airiCardStore.activeCard.extensions?.airi?.modules?.activeBackgroundId
-    if (!bgId || bgId === 'none') {
+    const bgId = activeBackgroundId.value
+    if (!bgId || bgId === PERSONAL_WORLD_NO_ACTIVE_ROOM_ID) {
       return null
     }
 
@@ -286,20 +317,19 @@ export const useBackgroundStore = defineStore('background-entries', () => {
     blob: Blob,
     title: string,
     prompt?: string,
-    characterId?: string,
+    scope = scopeFor(),
     remixId?: string,
   ) {
     const id = `${STORAGE_PREFIX}${nanoid()}`
-    const resolvedCharacterId = characterId ?? airiCardStore.activeCardId
-    if (!resolvedCharacterId)
+    if (!scope.characterId)
       throw new Error('User-created backgrounds require an active character.')
 
     const entry: BackgroundEntry = {
       schemaVersion: 2,
       id,
       type,
-      ownerId: authStore.userId,
-      characterId: resolvedCharacterId,
+      ownerId: scope.ownerId,
+      characterId: scope.characterId,
       title: title.trim() || 'Untitled Background',
       blob,
       prompt,
@@ -324,9 +354,9 @@ export const useBackgroundStore = defineStore('background-entries', () => {
     }
   }
 
-  async function removeBackground(id: string, characterId = airiCardStore.activeCardId) {
+  async function removeBackground(id: string, scope = scopeFor()) {
     const entry = entries.value.get(id)
-    if (!entry || !canManageBackgroundInScope(entry, scopeFor(characterId)))
+    if (!entry || !canManageBackgroundInScope(entry, scope))
       throw new Error('Background is unavailable in the current owner and character scope.')
 
     try {
@@ -345,10 +375,8 @@ export const useBackgroundStore = defineStore('background-entries', () => {
         URL.revokeObjectURL(url)
       }
       delete backgroundUrls[id]
-      if (airiCardStore.activeCardId === characterId
-        && airiCardStore.activeCard?.extensions?.airi?.modules?.activeBackgroundId === id) {
-        airiCardStore.updateActiveCardBackground(undefined)
-      }
+      if (personalWorldStore.getActiveRoomId(scope) === id)
+        await personalWorldStore.setActiveRoomId(scope, undefined)
       broadcastSync(Date.now())
     }
     catch (error) {
@@ -383,9 +411,11 @@ export const useBackgroundStore = defineStore('background-entries', () => {
     getCharacterBackgrounds,
     journalEntries,
     getCharacterJournalEntries,
+    activeBackgroundId,
     activeBackgroundUrl,
     journalRecentEntries,
     addBackground,
+    setActiveBackground,
     removeBackground,
     clearOwner,
     getBackgroundUrl: (id: string, characterId = airiCardStore.activeCardId) => {

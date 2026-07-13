@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import type { MemoryScope } from '@proj-airi/memory'
+
 import { useElectronEventaInvoke } from '@proj-airi/electron-vueuse'
+import { useAuthStore } from '@proj-airi/stage-ui/stores/auth'
 import { useBackgroundStore } from '@proj-airi/stage-ui/stores/background'
 import { useAiriCardStore } from '@proj-airi/stage-ui/stores/modules/airi-card'
 import { computed, ref, watch } from 'vue'
@@ -23,6 +26,7 @@ const props = withDefaults(defineProps<{
 })
 
 const cardStore = useAiriCardStore()
+const authStore = useAuthStore()
 const backgroundStore = useBackgroundStore()
 
 // NOTICE: Comfy.vue is a display-only widget. All journal ingestion is
@@ -95,25 +99,19 @@ function toggleFlip() {
 }
 
 async function handleSetAsBackground() {
-  if (!currentImage.value || !cardStore.activeCardId)
+  const entry = currentImage.value
+  const characterId = cardStore.activeCardId
+  if (!entry || !characterId)
     return
+
+  const scope = {
+    ownerId: authStore.userId,
+    characterId,
+  } satisfies MemoryScope
   isSettingBackground.value = true
   try {
-    const entry = currentImage.value
-    // Update the active card's background ID
-    const cardId = cardStore.activeCardId
-    const card = cardStore.activeCard
-    if (card) {
-      const extension = JSON.parse(JSON.stringify(card.extensions || {}))
-      if (!extension.airi)
-        extension.airi = {}
-      if (!extension.airi.modules)
-        extension.airi.modules = {}
-      extension.airi.modules.activeBackgroundId = entry.id
-
-      await cardStore.updateCard(cardId, { ...card, extensions: extension })
-      console.info(`[ComfyWidget] Set activeBackgroundId to ${entry.id} for ${cardId}`)
-    }
+    await backgroundStore.setActiveBackground(entry.id, scope)
+    console.info(`[ComfyWidget] Set the scoped Personal World room to ${entry.id} for ${scope.characterId}`)
   }
   catch (e) {
     console.error('[ComfyWidget] Failed to set background', e)

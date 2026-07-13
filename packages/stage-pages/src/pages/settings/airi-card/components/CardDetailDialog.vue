@@ -6,6 +6,7 @@ import DOMPurify from 'dompurify'
 import { useAnalytics } from '@proj-airi/stage-ui/composables'
 import { useDownload } from '@proj-airi/stage-ui/composables/download'
 import { exportAiriCardPackage } from '@proj-airi/stage-ui/services/airi-card-import-export'
+import { useAuthStore } from '@proj-airi/stage-ui/stores/auth'
 import { useBackgroundStore } from '@proj-airi/stage-ui/stores/background'
 import { useDisplayModelsStore } from '@proj-airi/stage-ui/stores/display-models'
 import { useAiriCardStore } from '@proj-airi/stage-ui/stores/modules/airi-card'
@@ -41,6 +42,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const { trackSceneBackgroundSet } = useAnalytics()
 const cardStore = useAiriCardStore()
+const authStore = useAuthStore()
 const consciousnessStore = useConsciousnessStore()
 const speechStore = useSpeechStore()
 const visionStore = useVisionStore()
@@ -263,7 +265,13 @@ function requestDeleteConfirmation(message: string): boolean {
 
 async function handleDeleteEntry(id: string) {
   if (requestDeleteConfirmation('Are you sure you want to delete this image from the journal?')) {
-    await backgroundStore.removeBackground(id, props.cardId)
+    const wasAuthoredBackground = activeBackgroundId.value === id
+    await backgroundStore.removeBackground(id, {
+      ownerId: authStore.userId,
+      characterId: props.cardId,
+    })
+    if (wasAuthoredBackground)
+      activeBackgroundId.value = 'none'
   }
 }
 

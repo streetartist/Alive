@@ -7,6 +7,8 @@ import type {
 import type { MemoryScope } from '@proj-airi/memory'
 import type { ChatProvider } from '@xsai-ext/providers/utils'
 
+import type { CompanionSnapshot } from '../../services/companion/local-companion'
+
 import { errorMessageFrom } from '@moeru/std'
 import { formatCompanionContextText, isCompanionReflectionDue } from '@proj-airi/companion-core'
 import { generateText } from '@xsai/generate-text'
@@ -55,8 +57,8 @@ export const useCompanionStore = defineStore('companion', () => {
   })
   const states = shallowRef<Record<string, CompanionState>>({})
   const profiles = shallowRef<Record<string, CompanionIdentityProfile>>({})
+  const pendingCompanionLoads = new Map<string, Promise<CompanionSnapshot>>()
   const pendingLoads = new Map<string, Promise<CompanionState>>()
-  const pendingProfileLoads = new Map<string, Promise<CompanionIdentityProfile>>()
   const pendingReflections = new Map<string, Promise<CompanionReflectionRunResult>>()
   const scopeRevisions = new Map<string, number>()
 
@@ -115,22 +117,39 @@ export const useCompanionStore = defineStore('companion', () => {
     if (cached)
       return cached
 
-    const existingLoad = pendingProfileLoads.get(key)
+    return (await loadCompanion(scope)).profile
+  }
+
+  /** Loads one coherent state/profile pair and caches both records together. */
+  async function loadCompanion(scope: MemoryScope) {
+    const key = scopeKey(scope)
+    const cachedState = states.value[key]
+    const cachedProfile = profiles.value[key]
+    if (cachedState && cachedProfile)
+      return { state: cachedState, profile: cachedProfile }
+
+    const existingLoad = pendingCompanionLoads.get(key)
     if (existingLoad)
       return await existingLoad
 
     const revision = scopeRevisions.get(key) ?? 0
-    const load = localCompanionService.loadProfile(scope).then(profile => (
-      (scopeRevisions.get(key) ?? 0) === revision ? cacheProfile(profile) : profile
-    ))
-    pendingProfileLoads.set(key, load)
+    const load = localCompanionService.loadCompanion(scope).then((snapshot) => {
+      if ((scopeRevisions.get(key) ?? 0) !== revision)
+        return snapshot
+
+      return {
+        state: cacheState(snapshot.state),
+        profile: cacheProfile(snapshot.profile),
+      }
+    })
+    pendingCompanionLoads.set(key, load)
 
     try {
       return await load
     }
     finally {
-      if (pendingProfileLoads.get(key) === load)
-        pendingProfileLoads.delete(key)
+      if (pendingCompanionLoads.get(key) === load)
+        pendingCompanionLoads.delete(key)
     }
   }
 
@@ -168,18 +187,18 @@ export const useCompanionStore = defineStore('companion', () => {
     return event?.type === 'user-feedback' ? event.sentiment : undefined
   }
 
-  function promptSupplement(scope: MemoryScope, identity: CompanionIdentity) {
-    const state = getCachedState(scope)
-    const profile = getCachedProfile(scope)
-    return state && profile ? formatCompanionContextText(identity, state, profile) : ''
-  }
-
   function identityFor(scope: MemoryScope): CompanionIdentity {
     const card = airiCardStore.cards.get(scope.characterId)
     return {
       id: scope.characterId,
       name: card?.name ?? scope.characterId,
     }
+  }
+
+  /** Loads the exact companion scope before projecting durable prompt context. */
+  async function loadPromptSupplement(scope: MemoryScope) {
+    const { state, profile } = await loadCompanion(scope)
+    return formatCompanionContextText(identityFor(scope), state, profile)
   }
 
   async function modelReflection(scope: MemoryScope, state: CompanionState) {
@@ -232,6 +251,12 @@ export const useCompanionStore = defineStore('companion', () => {
 
     const task = (async () => {
       const state = await loadState(scope)
+      const retainedReflection = state.reflections.at(-1)
+      if (retainedReflection) {
+        // Reflection persistence succeeds before Personal World capture. Replaying the
+        // deterministic reflection ID repairs a prior capture failure idempotently.
+        await personalWorldStore.captureReflection(scope, retainedReflection)
+      }
       const due = isCompanionReflectionDue(state)
       if (!options.force && !due)
         return { state, mode: 'not-due' as const }
@@ -282,8 +307,8 @@ export const useCompanionStore = defineStore('companion', () => {
   function invalidateScope(scope: MemoryScope) {
     const key = scopeKey(scope)
     scopeRevisions.set(key, (scopeRevisions.get(key) ?? 0) + 1)
+    pendingCompanionLoads.delete(key)
     pendingLoads.delete(key)
-    pendingProfileLoads.delete(key)
     const { [key]: _removed, ...remaining } = states.value
     states.value = remaining
     const { [key]: _removedProfile, ...remainingProfiles } = profiles.value
@@ -303,8 +328,8 @@ export const useCompanionStore = defineStore('companion', () => {
   function resetState() {
     states.value = {}
     profiles.value = {}
+    pendingCompanionLoads.clear()
     pendingLoads.clear()
-    pendingProfileLoads.clear()
     pendingReflections.clear()
     scopeRevisions.clear()
   }
@@ -314,6 +339,7 @@ export const useCompanionStore = defineStore('companion', () => {
     profiles,
     getCachedState,
     getCachedProfile,
+    loadCompanion,
     loadState,
     loadProfile,
     updateProfile,
@@ -322,7 +348,7 @@ export const useCompanionStore = defineStore('companion', () => {
     recordFeedback,
     feedbackFor,
     reflect,
-    promptSupplement,
+    loadPromptSupplement,
     invalidateScope,
     clearScope,
     clearOwner,

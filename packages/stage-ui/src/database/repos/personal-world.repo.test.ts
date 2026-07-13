@@ -111,6 +111,16 @@ describe('personal world repository', () => {
     expect(await repository.list(ownerACharacterA)).toHaveLength(1)
   })
 
+  it('persists active room references independently for every owner and character', async () => {
+    await repository.saveActiveRoomId(ownerACharacterA, 'bg-room-a')
+    await repository.saveActiveRoomId(ownerACharacterB, 'bg-room-b')
+    await repository.saveActiveRoomId(ownerBCharacterA, 'none')
+
+    expect(await repository.getActiveRoomId(ownerACharacterA)).toBe('bg-room-a')
+    expect(await repository.getActiveRoomId(ownerACharacterB)).toBe('bg-room-b')
+    expect(await repository.getActiveRoomId(ownerBCharacterA)).toBe('none')
+  })
+
   it('lists mounted IndexedDB-style keys whose driver prepends its own base', async () => {
     const mountedRepository = createPersonalWorldRepository(createPrefixedMountedStorage())
     await mountedRepository.saveProject(makeProject(ownerACharacterA, 'mounted-project', 1))
@@ -143,6 +153,8 @@ describe('personal world repository', () => {
     await repository.save(makeEntry(ownerACharacterB, 'b', 2))
     await repository.saveProject(makeProject(ownerACharacterA, 'project-a', 3))
     await repository.saveProject(makeProject(ownerACharacterB, 'project-b', 4))
+    await repository.saveActiveRoomId(ownerACharacterA, 'bg-room-a')
+    await repository.saveActiveRoomId(ownerACharacterB, 'bg-room-b')
 
     await repository.clearScope(ownerACharacterA)
 
@@ -150,6 +162,8 @@ describe('personal world repository', () => {
     expect(await repository.list(ownerACharacterB)).toHaveLength(1)
     expect(await repository.listProjects(ownerACharacterA)).toEqual([])
     expect(await repository.listProjects(ownerACharacterB)).toHaveLength(1)
+    expect(await repository.getActiveRoomId(ownerACharacterA)).toBeNull()
+    expect(await repository.getActiveRoomId(ownerACharacterB)).toBe('bg-room-b')
   })
 
   it('clears every world owned by one user only', async () => {
@@ -158,6 +172,8 @@ describe('personal world repository', () => {
     await repository.save(makeEntry(ownerBCharacterA, 'c', 3))
     await repository.saveProject(makeProject(ownerACharacterA, 'project-a', 4))
     await repository.saveProject(makeProject(ownerBCharacterA, 'project-b', 5))
+    await repository.saveActiveRoomId(ownerACharacterA, 'bg-room-a')
+    await repository.saveActiveRoomId(ownerBCharacterA, 'bg-room-b')
 
     await repository.clearOwner('owner-a')
 
@@ -166,5 +182,7 @@ describe('personal world repository', () => {
     expect(await repository.list(ownerBCharacterA)).toHaveLength(1)
     expect(await repository.listProjects(ownerACharacterA)).toEqual([])
     expect(await repository.listProjects(ownerBCharacterA)).toHaveLength(1)
+    expect(await repository.getActiveRoomId(ownerACharacterA)).toBeNull()
+    expect(await repository.getActiveRoomId(ownerBCharacterA)).toBe('bg-room-b')
   })
 })

@@ -87,6 +87,87 @@ describe('local companion service', () => {
     expect((await service.load(scope)).createdAt).toBe(10)
   })
 
+  it('shares one cold initialization across concurrent state-and-profile loads', async () => {
+    const repository = createRepository()
+    const profileRepository = createProfileRepository()
+    let now = 10
+    const service = createLocalCompanionService({
+      repository,
+      profileRepository,
+      now: () => now++,
+    })
+
+    const [first, second] = await Promise.all([
+      service.loadCompanion(scope),
+      service.loadCompanion(scope),
+    ])
+
+    expect(first.state.createdAt).toBe(10)
+    expect(first.profile.birthday).toBe('1970-01-01T00:00:00.010Z')
+    expect(second).toEqual(first)
+    expect(repository.save).toHaveBeenCalledTimes(1)
+    expect(profileRepository.save).toHaveBeenCalledTimes(1)
+  })
+
+  it('reuses a concurrent lazy state load when the profile initializes the relationship', async () => {
+    const repository = createRepository()
+    const profileRepository = createProfileRepository()
+    let now = 10
+    const service = createLocalCompanionService({
+      repository,
+      profileRepository,
+      now: () => now++,
+    })
+
+    const [state, profile] = await Promise.all([
+      service.load(scope),
+      service.loadProfile(scope),
+    ])
+
+    expect(state.createdAt).toBe(10)
+    expect(profile.birthday).toBe('1970-01-01T00:00:00.010Z')
+    expect((await service.load(scope)).createdAt).toBe(state.createdAt)
+    expect(repository.save).toHaveBeenCalledTimes(1)
+    expect(profileRepository.save).toHaveBeenCalledTimes(1)
+  })
+
+  it('reuses an earlier unpersisted state when a later profile load starts the relationship', async () => {
+    const repository = createRepository()
+    const profileRepository = createProfileRepository()
+    let now = 10
+    const service = createLocalCompanionService({
+      repository,
+      profileRepository,
+      now: () => now++,
+    })
+
+    const state = await service.load(scope)
+    const profile = await service.loadProfile(scope)
+
+    expect(state.createdAt).toBe(10)
+    expect(profile.birthday).toBe('1970-01-01T00:00:00.010Z')
+    expect((await service.load(scope)).createdAt).toBe(state.createdAt)
+  })
+
+  it('orders cold companion initialization with the first durable interaction', async () => {
+    const repository = createRepository()
+    const profileRepository = createProfileRepository()
+    let now = 10
+    const service = createLocalCompanionService({
+      repository,
+      profileRepository,
+      now: () => now++,
+    })
+
+    const interaction = service.recordCompletedInteraction(scope, 'memory-1')
+    const companion = service.loadCompanion(scope)
+    const [state, snapshot] = await Promise.all([interaction, companion])
+
+    expect(state.interactionCount).toBe(1)
+    expect(snapshot.state.interactionCount).toBe(1)
+    expect(snapshot.profile.birthday).toBe(new Date(snapshot.state.createdAt).toISOString())
+  })
+
   it('updates normalized profile fields without changing its birthday', async () => {
     const repository = createRepository()
     const profileRepository = createProfileRepository()

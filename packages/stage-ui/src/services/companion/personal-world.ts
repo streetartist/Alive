@@ -32,6 +32,8 @@ export interface PersonalWorldServiceOptions {
 export interface PersonalWorldService {
   list: (scope: MemoryScope) => Promise<PersonalWorldEntry[]>
   listProjects: (scope: MemoryScope) => Promise<PersonalWorldProject[]>
+  getActiveRoomId: (scope: MemoryScope) => Promise<string | null>
+  saveActiveRoomId: (scope: MemoryScope, backgroundId: string) => Promise<void>
   addJournal: (scope: MemoryScope, input: { title: string, content: string }) => Promise<PersonalWorldEntry>
   createProject: (scope: MemoryScope, input: {
     title: string
@@ -48,6 +50,16 @@ export interface PersonalWorldService {
 
 function scopeKey(scope: MemoryScope) {
   return JSON.stringify([scope.ownerId, scope.characterId])
+}
+
+function ownerFromScopeKey(key: string) {
+  try {
+    const scope: unknown = JSON.parse(key)
+    return Array.isArray(scope) && typeof scope[0] === 'string' ? scope[0] : undefined
+  }
+  catch {
+    return undefined
+  }
 }
 
 function reflectionEntryId(reflectionId: string) {
@@ -102,6 +114,14 @@ export function createPersonalWorldService(
 
     async listProjects(scope) {
       return await repository.listProjects(scope)
+    },
+
+    async getActiveRoomId(scope) {
+      return await repository.getActiveRoomId(scope)
+    },
+
+    async saveActiveRoomId(scope, backgroundId) {
+      await updateScope(scope, async () => repository.saveActiveRoomId(scope, backgroundId))
     },
 
     async addJournal(scope, input) {
@@ -205,6 +225,10 @@ export function createPersonalWorldService(
     },
 
     async clearOwner(ownerId) {
+      const ownedUpdates = [...pendingUpdates.entries()]
+        .filter(([key]) => ownerFromScopeKey(key) === ownerId)
+        .map(([, update]) => update.catch(() => undefined))
+      await Promise.all(ownedUpdates)
       await repository.clearOwner(ownerId)
     },
   }

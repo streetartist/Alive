@@ -199,10 +199,7 @@ function useControlApiStores() {
 
   async function getAliveProfile(): Promise<ControlApiAliveProfileSnapshot> {
     const scope = await aliveScope()
-    const [state, profile] = await Promise.all([
-      companionStore.loadState(scope),
-      companionStore.loadProfile(scope),
-    ])
+    const { state, profile } = await companionStore.loadCompanion(scope)
     return cloneJson(aliveProfileSnapshot(scope, state, profile))
   }
 
@@ -216,11 +213,11 @@ function useControlApiStores() {
 
   async function getAliveState(): Promise<ControlApiAliveStateSnapshot> {
     const scope = await aliveScope()
-    const [state, profile, records] = await Promise.all([
-      companionStore.loadState(scope),
-      companionStore.loadProfile(scope),
+    const [companion, records] = await Promise.all([
+      companionStore.loadCompanion(scope),
       memoryStore.listMemories(scope),
     ])
+    const { state, profile } = companion
     return cloneJson({
       profile: aliveProfileSnapshot(scope, state, profile),
       state,

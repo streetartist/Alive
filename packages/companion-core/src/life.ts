@@ -5,7 +5,7 @@ export type CompanionLifeBehaviorKind
     | 'idle-creative'
     | 'resting'
 
-/** Persisted scheduler metadata isolated per character. */
+/** Persisted scheduler metadata isolated per owner-and-character companion scope. */
 export interface CompanionLifeBehaviorState {
   lastBehaviorAt?: number
   lastMorningGreetingDate?: string

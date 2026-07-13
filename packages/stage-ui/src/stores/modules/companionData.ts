@@ -27,21 +27,33 @@ export const useCompanionDataStore = defineStore('companion-data', () => {
 
   async function importScope(scope: MemoryScope, input: unknown) {
     try {
-      return await companionDataPortabilityService.importScope(scope, input)
-    }
-    finally {
-      // A failed rollback may leave only part of a scope persisted. Never keep
-      // pre-operation caches after any cross-repository mutation attempt.
+      await personalWorldStore.waitForActiveRoomWrites(scope)
+      const summary = await companionDataPortabilityService.importScope(scope, input)
       invalidateScope(scope)
+      await personalWorldStore.loadActiveRoomId(scope)
+      return summary
+    }
+    catch (error) {
+      invalidateScope(scope)
+      // Rollback may have restored a room reference. Reload without masking the
+      // original import failure if the follow-up read also fails.
+      void personalWorldStore.loadActiveRoomId(scope).catch(() => undefined)
+      throw error
     }
   }
 
   async function clearScope(scope: MemoryScope) {
     try {
-      return await companionDataPortabilityService.clearScope(scope)
-    }
-    finally {
+      await personalWorldStore.waitForActiveRoomWrites(scope)
+      const summary = await companionDataPortabilityService.clearScope(scope)
       invalidateScope(scope)
+      await personalWorldStore.loadActiveRoomId(scope)
+      return summary
+    }
+    catch (error) {
+      invalidateScope(scope)
+      void personalWorldStore.loadActiveRoomId(scope).catch(() => undefined)
+      throw error
     }
   }
 

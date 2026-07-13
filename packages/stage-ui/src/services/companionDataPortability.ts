@@ -11,6 +11,7 @@ import type { CompanionStateRepository } from '../database/repos/companion-state
 import type { MemoryRepository } from '../database/repos/memories.repo'
 import type { PersonalWorldRepository } from '../database/repos/personal-world.repo'
 
+import { PERSONAL_WORLD_NO_ACTIVE_ROOM_ID } from '@proj-airi/companion-core'
 import {
   array,
   literal,
@@ -44,7 +45,7 @@ const COMPANION_DATA_ARCHIVE_KIND = 'airi-companion-data'
 
 const archiveEnvelopeSchema = object({
   kind: literal(COMPANION_DATA_ARCHIVE_KIND),
-  schemaVersion: literal(1),
+  schemaVersion: literal(2),
   exportedAt: number(),
   scope: object({
     ownerId: string(),
@@ -55,6 +56,7 @@ const archiveEnvelopeSchema = object({
     state: nullable(unknownValue()),
     memories: array(unknownValue()),
     personalWorld: object({
+      activeRoomId: nullable(string()),
       entries: array(unknownValue()),
       projects: array(unknownValue()),
     }),
@@ -64,7 +66,7 @@ const archiveEnvelopeSchema = object({
 /** Versioned local backup for exactly one owner-and-character companion scope. */
 export interface CompanionDataArchive {
   kind: typeof COMPANION_DATA_ARCHIVE_KIND
-  schemaVersion: 1
+  schemaVersion: 2
   /** Unix epoch timestamp in milliseconds when the snapshot was read. */
   exportedAt: number
   /** Scope that must match the active import target exactly. */
@@ -74,6 +76,8 @@ export interface CompanionDataArchive {
     state: CompanionState | null
     memories: MemoryRecord[]
     personalWorld: {
+      /** Scoped background reference only; image blobs remain in the background asset store. */
+      activeRoomId: string | null
       entries: PersonalWorldEntry[]
       projects: PersonalWorldProject[]
     }
@@ -182,6 +186,12 @@ export function parseCompanionDataArchive(
       throw new Error('Companion data archive contains an invalid Personal World project.')
     return project
   })
+  const activeRoomId = output.data.personalWorld.activeRoomId
+  if (activeRoomId !== null
+    && activeRoomId !== PERSONAL_WORLD_NO_ACTIVE_ROOM_ID
+    && (!activeRoomId || activeRoomId.trim() !== activeRoomId)) {
+    throw new Error('Companion data archive contains an invalid Personal World active room reference.')
+  }
 
   if (profile)
     requireScope(profile.scope, output.scope, 'an identity profile')
@@ -200,7 +210,7 @@ export function parseCompanionDataArchive(
 
   return {
     kind: COMPANION_DATA_ARCHIVE_KIND,
-    schemaVersion: 1,
+    schemaVersion: 2,
     exportedAt: output.exportedAt,
     scope: { ...output.scope },
     data: {
@@ -208,6 +218,7 @@ export function parseCompanionDataArchive(
       state,
       memories,
       personalWorld: {
+        activeRoomId,
         entries,
         projects,
       },
@@ -297,16 +308,17 @@ export function createCompanionDataPortabilityService(
   }
 
   async function readArchive(scope: MemoryScope): Promise<CompanionDataArchive> {
-    const [profile, state, memories, entries, projects] = await Promise.all([
+    const [profile, state, memories, activeRoomId, entries, projects] = await Promise.all([
       repositories.profile.get(scope),
       repositories.state.get(scope),
       repositories.memories.list(scope),
+      repositories.personalWorld.getActiveRoomId(scope),
       repositories.personalWorld.list(scope),
       repositories.personalWorld.listProjects(scope),
     ])
     return {
       kind: COMPANION_DATA_ARCHIVE_KIND,
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: now(),
       scope: { ...scope },
       data: {
@@ -314,6 +326,7 @@ export function createCompanionDataPortabilityService(
         state,
         memories,
         personalWorld: {
+          activeRoomId,
           entries,
           projects,
         },
@@ -337,6 +350,8 @@ export function createCompanionDataPortabilityService(
       await repositories.state.save(archive.data.state)
     for (const record of archive.data.memories)
       await repositories.memories.save(record)
+    if (archive.data.personalWorld.activeRoomId !== null)
+      await repositories.personalWorld.saveActiveRoomId(archive.scope, archive.data.personalWorld.activeRoomId)
     for (const entry of archive.data.personalWorld.entries)
       await repositories.personalWorld.save(entry)
     for (const project of archive.data.personalWorld.projects)

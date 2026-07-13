@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Section } from '@proj-airi/stage-ui/components'
 import { useAnalytics } from '@proj-airi/stage-ui/composables'
-import { useAiriCardStore, useBackgroundStore } from '@proj-airi/stage-ui/stores'
+import { useBackgroundStore } from '@proj-airi/stage-ui/stores'
 import { Button, Callout } from '@proj-airi/ui'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -9,7 +9,6 @@ import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
 const { trackSceneBackgroundSet } = useAnalytics()
 const backgroundStore = useBackgroundStore()
-const cardStore = useAiriCardStore()
 
 const fileInputRef = ref<HTMLInputElement>()
 
@@ -18,14 +17,7 @@ const sceneEntries = computed(() => {
     .filter(e => e.type === 'scene' || e.type === 'builtin')
 })
 
-const activeBackgroundId = computed({
-  get: () => cardStore.activeCard?.extensions?.airi?.modules?.activeBackgroundId || 'none',
-  set: (val: string) => {
-    if (!cardStore.updateActiveCardBackground(val))
-      return
-    trackSceneBackgroundSet({ source: 'scene_settings', cleared: val === 'none' })
-  },
-})
+const activeBackgroundId = computed(() => backgroundStore.activeBackgroundId || 'none')
 
 function triggerUpload() {
   fileInputRef.value?.click()
@@ -39,8 +31,9 @@ async function handleFileChange(event: Event) {
   await backgroundStore.addBackground('scene', file, file.name)
 }
 
-function setAsBackground(id: string) {
-  activeBackgroundId.value = id
+async function setAsBackground(id: string) {
+  await backgroundStore.setActiveBackground(id)
+  trackSceneBackgroundSet({ source: 'scene_settings', cleared: false })
 }
 
 function requestDeleteConfirmation(message: string): boolean {
@@ -60,8 +53,9 @@ function removeBackground(id: string) {
   }
 }
 
-function clearDefault() {
-  activeBackgroundId.value = 'none'
+async function clearDefault() {
+  await backgroundStore.setActiveBackground()
+  trackSceneBackgroundSet({ source: 'scene_settings', cleared: true })
 }
 </script>
 

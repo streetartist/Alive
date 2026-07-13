@@ -122,6 +122,7 @@ describe('companion data portability', () => {
     await repositories.memories.save(makeMemory(scope, 'memory-a', 3))
     await repositories.personalWorld.save(makeEntry(scope, 'entry-a', 4))
     await repositories.personalWorld.saveProject(makeProject(scope, 'project-a', 5))
+    await repositories.personalWorld.saveActiveRoomId(scope, 'bg-room-a')
     await repositories.memories.save(makeMemory(siblingScope, 'sibling-memory', 6))
     const service = createCompanionDataPortabilityService({
       repositories,
@@ -132,17 +133,19 @@ describe('companion data portability', () => {
     const emptyArchive = await service.exportScope({ ownerId: 'owner-b', characterId: 'character-c' })
 
     expect(archive.kind).toBe('airi-companion-data')
-    expect(archive.schemaVersion).toBe(1)
+    expect(archive.schemaVersion).toBe(2)
     expect(archive.exportedAt).toBe(100)
     expect(archive.scope).toEqual(scope)
     expect(archive.data.profile?.interests).toEqual(['drawing'])
     expect(archive.data.state?.interactionCount).toBe(3)
     expect(archive.data.memories.map(record => record.id)).toEqual(['memory-a'])
+    expect(archive.data.personalWorld.activeRoomId).toBe('bg-room-a')
     expect(archive.data.personalWorld.entries.map(entry => entry.id)).toEqual(['entry-a'])
     expect(archive.data.personalWorld.projects.map(project => project.id)).toEqual(['project-a'])
     expect(emptyArchive.data.profile).toBeNull()
     expect(emptyArchive.data.state).toBeNull()
     expect(emptyArchive.data.memories).toEqual([])
+    expect(emptyArchive.data.personalWorld.activeRoomId).toBeNull()
     expect(emptyArchive.data.personalWorld.entries).toEqual([])
     expect(emptyArchive.data.personalWorld.projects).toEqual([])
   })
@@ -150,7 +153,7 @@ describe('companion data portability', () => {
   it('parses JSON while rejecting ownership mismatches and duplicate ids', () => {
     const archive = {
       kind: 'airi-companion-data',
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: 10,
       scope,
       data: {
@@ -158,6 +161,7 @@ describe('companion data portability', () => {
         state: makeState(scope, 1),
         memories: [makeMemory(scope, 'memory-a', 1)],
         personalWorld: {
+          activeRoomId: 'bg-room-a',
           entries: [makeEntry(scope, 'entry-a', 1)],
           projects: [makeProject(scope, 'project-a', 1)],
         },
@@ -201,6 +205,16 @@ describe('companion data portability', () => {
         },
       },
     }, scope)).toThrow('invalid relationship state')
+    expect(() => parseCompanionDataArchive({
+      ...archive,
+      data: {
+        ...archive.data,
+        personalWorld: {
+          ...archive.data.personalWorld,
+          activeRoomId: '',
+        },
+      },
+    }, scope)).toThrow('invalid Personal World active room reference')
   })
 
   it('replaces one scope idempotently while preserving sibling data', async () => {
@@ -214,7 +228,7 @@ describe('companion data portability', () => {
     const service = createCompanionDataPortabilityService({ repositories, now: () => 50 })
     const archive = {
       kind: 'airi-companion-data',
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: 20,
       scope,
       data: {
@@ -222,6 +236,7 @@ describe('companion data portability', () => {
         state: makeState(scope, 8),
         memories: [makeMemory(scope, 'new-memory', 2)],
         personalWorld: {
+          activeRoomId: 'bg-new-room',
           entries: [makeEntry(scope, 'new-entry', 2)],
           projects: [makeProject(scope, 'new-project', 2)],
         },
@@ -247,6 +262,7 @@ describe('companion data portability', () => {
     expect((await repositories.memories.list(scope)).map(record => record.id)).toEqual(['new-memory'])
     expect((await repositories.personalWorld.list(scope)).map(entry => entry.id)).toEqual(['new-entry'])
     expect((await repositories.personalWorld.listProjects(scope)).map(project => project.id)).toEqual(['new-project'])
+    expect(await repositories.personalWorld.getActiveRoomId(scope)).toBe('bg-new-room')
     expect((await repositories.profile.get(siblingScope))?.interests).toEqual(['sibling'])
     expect((await repositories.memories.list(siblingScope)).map(record => record.id)).toEqual(['sibling-memory'])
   })
@@ -257,7 +273,7 @@ describe('companion data portability', () => {
     const service = createCompanionDataPortabilityService({ repositories })
     const emptyArchive = {
       kind: 'airi-companion-data',
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: 20,
       scope,
       data: {
@@ -265,6 +281,7 @@ describe('companion data portability', () => {
         state: null,
         memories: [],
         personalWorld: {
+          activeRoomId: null,
           entries: [],
           projects: [],
         },
@@ -283,6 +300,7 @@ describe('companion data portability', () => {
     await repositories.memories.save(makeMemory(scope, 'before-memory', 1))
     await repositories.personalWorld.save(makeEntry(scope, 'before-entry', 1))
     await repositories.personalWorld.saveProject(makeProject(scope, 'before-project', 1))
+    await repositories.personalWorld.saveActiveRoomId(scope, 'bg-before-room')
     let failTargetProjectOnce = true
     const failingRepositories = {
       ...repositories,
@@ -304,7 +322,7 @@ describe('companion data portability', () => {
     const before = archiveContent(await service.exportScope(scope))
     const target = {
       kind: 'airi-companion-data',
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: 20,
       scope,
       data: {
@@ -312,6 +330,7 @@ describe('companion data portability', () => {
         state: makeState(scope, 9),
         memories: [makeMemory(scope, 'target-memory', 2)],
         personalWorld: {
+          activeRoomId: 'bg-target-room',
           entries: [makeEntry(scope, 'target-entry', 2)],
           projects: [makeProject(scope, 'target-project', 2)],
         },
@@ -331,6 +350,7 @@ describe('companion data portability', () => {
     await repositories.memories.save(makeMemory(scope, 'memory-a', 1))
     await repositories.personalWorld.save(makeEntry(scope, 'entry-a', 1))
     await repositories.personalWorld.saveProject(makeProject(scope, 'project-a', 1))
+    await repositories.personalWorld.saveActiveRoomId(scope, 'bg-room-a')
     await repositories.profile.save(makeProfile(siblingScope, 'music'))
     await repositories.memories.save(makeMemory(siblingScope, 'sibling-memory', 1))
     await storage.setItemRaw('local:airi-card/active', { id: 'character-a' })
@@ -351,6 +371,7 @@ describe('companion data portability', () => {
     expect(await repositories.memories.list(scope)).toEqual([])
     expect(await repositories.personalWorld.list(scope)).toEqual([])
     expect(await repositories.personalWorld.listProjects(scope)).toEqual([])
+    expect(await repositories.personalWorld.getActiveRoomId(scope)).toBeNull()
     expect((await repositories.profile.get(siblingScope))?.interests).toEqual(['music'])
     expect((await repositories.memories.list(siblingScope)).map(record => record.id)).toEqual(['sibling-memory'])
     expect(await storage.getItemRaw('local:airi-card/active')).toEqual({ id: 'character-a' })

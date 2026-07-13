@@ -9,6 +9,7 @@ import { ref, toRaw } from 'vue'
 import { toast } from 'vue-sonner'
 
 import { useAnalytics } from '../../composables/use-analytics'
+import { useAuthStore } from '../auth'
 import { useBackgroundStore } from '../background'
 import { useChatSessionStore } from '../chat/session-store'
 import { useProvidersStore } from '../providers'
@@ -19,6 +20,7 @@ import { useConsciousnessStore } from './consciousness'
 const artistLog = import.meta.env.DEV ? console.info.bind(console, '[AutonomousArtist]') : () => {}
 
 export const useAutonomousArtistryStore = defineStore('artistry-autonomous', () => {
+  const authStore = useAuthStore()
   const cardStore = useAiriCardStore()
   const backgroundStore = useBackgroundStore()
   const artistryStore = useArtistryStore()
@@ -71,6 +73,7 @@ export const useAutonomousArtistryStore = defineStore('artistry-autonomous', () 
 
     const threshold = artistry.autonomousThreshold ?? 70
     const cardId = cardStore.activeCardId
+    const scope = { ownerId: authStore.userId, characterId: cardId }
 
     isProcessing.value = true
     artistLog('Starting analysis task...', { threshold, cardId, target })
@@ -261,7 +264,7 @@ LATEST ${target === 'assistant' ? 'COMPANION RESPONSE' : 'USER INPUT'}:
             blob = await response.blob()
           }
 
-          const entryId = await backgroundStore.addBackground('journal', blob, analysis.title || 'Autonomous Scene', analysis.prompt, cardId)
+          const entryId = await backgroundStore.addBackground('journal', blob, analysis.title || 'Autonomous Scene', analysis.prompt, scope)
           artistLog('Generation complete and added to journal.', { entryId })
 
           // 5. Route based on spawnMode
@@ -270,19 +273,7 @@ LATEST ${target === 'assistant' ? 'COMPANION RESPONSE' : 'USER INPUT'}:
 
           switch (spawnMode) {
             case 'bg':
-              // Update character's active background
-              cardStore.updateCard(cardId, {
-                extensions: {
-                  ...activeCard.extensions,
-                  airi: {
-                    ...activeCard.extensions.airi,
-                    modules: {
-                      ...activeCard.extensions.airi.modules,
-                      activeBackgroundId: entryId,
-                    },
-                  },
-                },
-              } as any)
+              await backgroundStore.setActiveBackground(entryId, scope)
               break
 
             case 'inline': {
@@ -321,19 +312,8 @@ LATEST ${target === 'assistant' ? 'COMPANION RESPONSE' : 'USER INPUT'}:
 
             case 'bg_widget':
             default:
-              // Both: Update background AND spawn widget
-              cardStore.updateCard(cardId, {
-                extensions: {
-                  ...activeCard.extensions,
-                  airi: {
-                    ...activeCard.extensions.airi,
-                    modules: {
-                      ...activeCard.extensions.airi.modules,
-                      activeBackgroundId: entryId,
-                    },
-                  },
-                },
-              } as any)
+              // Both: update the scoped Personal World room and spawn a widget.
+              await backgroundStore.setActiveBackground(entryId, scope)
 
               try {
                 await invokers.addWidget({

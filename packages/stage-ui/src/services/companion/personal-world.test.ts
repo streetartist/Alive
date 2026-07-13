@@ -55,6 +55,70 @@ describe('personal world service', () => {
     }])
   })
 
+  it('serializes an active room write before clearing the same scope', async () => {
+    let resolveWrite: () => void = () => {}
+    const writeGate = new Promise<void>((resolve) => {
+      resolveWrite = resolve
+    })
+    const operationOrder: string[] = []
+    const delayedRepository = {
+      ...repository,
+      async saveActiveRoomId(targetScope: MemoryScope, backgroundId: string) {
+        await writeGate
+        operationOrder.push('save')
+        await repository.saveActiveRoomId(targetScope, backgroundId)
+      },
+      async clearScope(targetScope: MemoryScope) {
+        operationOrder.push('clear')
+        await repository.clearScope(targetScope)
+      },
+    }
+    service = createPersonalWorldService({ repository: delayedRepository })
+
+    const pendingSave = service.saveActiveRoomId(scope, 'bg-room')
+    const pendingClear = service.clearScope(scope)
+    expect(operationOrder).toEqual([])
+
+    resolveWrite()
+    await pendingSave
+    await pendingClear
+
+    expect(operationOrder).toEqual(['save', 'clear'])
+    expect(await repository.getActiveRoomId(scope)).toBeNull()
+  })
+
+  it('waits for active room writes before clearing their owner', async () => {
+    let resolveWrite: () => void = () => {}
+    const writeGate = new Promise<void>((resolve) => {
+      resolveWrite = resolve
+    })
+    const operationOrder: string[] = []
+    const delayedRepository = {
+      ...repository,
+      async saveActiveRoomId(targetScope: MemoryScope, backgroundId: string) {
+        await writeGate
+        operationOrder.push('save')
+        await repository.saveActiveRoomId(targetScope, backgroundId)
+      },
+      async clearOwner(ownerId: string) {
+        operationOrder.push('clear-owner')
+        await repository.clearOwner(ownerId)
+      },
+    }
+    service = createPersonalWorldService({ repository: delayedRepository })
+
+    const pendingSave = service.saveActiveRoomId(scope, 'bg-room')
+    const pendingClear = service.clearOwner(scope.ownerId)
+    expect(operationOrder).toEqual([])
+
+    resolveWrite()
+    await pendingSave
+    await pendingClear
+
+    expect(operationOrder).toEqual(['save', 'clear-owner'])
+    expect(await repository.getActiveRoomId(scope)).toBeNull()
+  })
+
   it('creates, evolves, and removes a scoped creative project', async () => {
     const project = await service.createProject(scope, {
       title: 'Rain sketches',

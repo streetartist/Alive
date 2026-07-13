@@ -540,6 +540,21 @@ pages:
       empty:
         title: No reflections yet
         description: AIRI reflects after every 10 completed interactions and catches up once on the next day when interactions remain unreviewed. You can also request one now.
+    timeline:
+      title: Relationship timeline
+      description: Recent durable events that changed this companion's growth or relationship score.
+      growthDelta: 'Growth {value}'
+      relationshipDelta: 'Relationship {value}'
+      unknownDate: Time unavailable
+      events:
+        interaction: Shared interaction completed
+        importantMemory: Favorite moment saved
+        feedback:
+          positive: Positive response feedback
+          negative: Response adjustment requested
+      empty:
+        title: No relationship events yet
+        description: Completed remembered interactions, favorite moments, and response feedback will appear here.
     feedback:
       reflectedWithModel: Reflection completed with the active model.
       reflectedLocally: A safe local reflection was recorded because model reflection was unavailable.

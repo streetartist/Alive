@@ -29,6 +29,10 @@ function projectPrefix(scope: MemoryScope) {
   return `${scopePrefix(scope)}projects/`
 }
 
+function activeRoomKey(scope: MemoryScope) {
+  return `${scopePrefix(scope)}active-room`
+}
+
 function entryKey(entry: Pick<PersonalWorldEntry, 'id' | 'scope'>) {
   return `${entryPrefix(entry.scope)}${encodeKeyPart(entry.id)}`
 }
@@ -40,6 +44,25 @@ function projectKey(project: Pick<PersonalWorldProject, 'id' | 'scope'>) {
 function belongsToScope(record: { scope: MemoryScope }, scope: MemoryScope) {
   return record.scope.ownerId === scope.ownerId
     && record.scope.characterId === scope.characterId
+}
+
+interface PersonalWorldActiveRoomRecord {
+  schemaVersion: 1
+  scope: MemoryScope
+  backgroundId: string
+}
+
+function isPersonalWorldActiveRoomRecord(value: unknown): value is PersonalWorldActiveRoomRecord {
+  if (!value || typeof value !== 'object')
+    return false
+
+  const candidate = value as Partial<PersonalWorldActiveRoomRecord>
+  return candidate.schemaVersion === 1
+    && typeof candidate.scope?.ownerId === 'string'
+    && typeof candidate.scope?.characterId === 'string'
+    && typeof candidate.backgroundId === 'string'
+    && candidate.backgroundId.length > 0
+    && candidate.backgroundId.trim() === candidate.backgroundId
 }
 
 function isPersonalWorldEntrySource(value: unknown): value is PersonalWorldEntry['source'] {
@@ -127,6 +150,8 @@ export interface PersonalWorldRepository {
   saveProject: (project: PersonalWorldProject) => Promise<void>
   listProjects: (scope: MemoryScope) => Promise<PersonalWorldProject[]>
   removeProject: (scope: MemoryScope, id: string) => Promise<void>
+  getActiveRoomId: (scope: MemoryScope) => Promise<string | null>
+  saveActiveRoomId: (scope: MemoryScope, backgroundId: string) => Promise<void>
   clearScope: (scope: MemoryScope) => Promise<void>
   clearOwner: (ownerId: string) => Promise<void>
 }
@@ -191,6 +216,25 @@ export function createPersonalWorldRepository(
 
     async removeProject(scope, id) {
       await worldStorage.removeItem(projectKey({ scope, id }))
+    },
+
+    async getActiveRoomId(scope) {
+      const value = await worldStorage.getItemRaw<unknown>(activeRoomKey(scope))
+      return isPersonalWorldActiveRoomRecord(value) && belongsToScope(value, scope)
+        ? value.backgroundId
+        : null
+    },
+
+    async saveActiveRoomId(scope, backgroundId) {
+      const normalizedId = backgroundId.trim()
+      if (!normalizedId)
+        throw new Error('Personal World active rooms require a background id.')
+
+      await worldStorage.setItemRaw(activeRoomKey(scope), {
+        schemaVersion: 1,
+        scope: { ...scope },
+        backgroundId: normalizedId,
+      } satisfies PersonalWorldActiveRoomRecord)
     },
 
     async clearScope(scope) {

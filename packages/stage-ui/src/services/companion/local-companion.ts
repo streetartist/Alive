@@ -41,9 +41,17 @@ export interface LocalCompanionServiceOptions {
   }) => Promise<void>
 }
 
+/** Coherent durable state and identity records for one companion scope. */
+export interface CompanionSnapshot {
+  state: CompanionState
+  profile: CompanionIdentityProfile
+}
+
 /** Device-local operations required by chat and data-management surfaces. */
 export interface LocalCompanionService {
   load: (scope: MemoryScope) => Promise<CompanionState>
+  /** Loads or initializes state and profile with one stable relationship birthday. */
+  loadCompanion: (scope: MemoryScope) => Promise<CompanionSnapshot>
   loadProfile: (scope: MemoryScope) => Promise<CompanionIdentityProfile>
   updateProfile: (
     scope: MemoryScope,
@@ -83,29 +91,109 @@ export function createLocalCompanionService(
   const now = options.now ?? Date.now
   const policy = options.policy ?? defaultCompanionDevelopmentPolicy
   const onGrowthStageTransition = options.onGrowthStageTransition
+  const pendingCompanionLoads = new Map<string, Promise<CompanionSnapshot>>()
+  const pendingStateLoads = new Map<string, Promise<CompanionState>>()
   const pendingUpdates = new Map<string, Promise<CompanionState>>()
   const pendingProfileUpdates = new Map<string, Promise<CompanionIdentityProfile>>()
+  const unpersistedStates = new Map<string, CompanionState>()
 
-  async function load(scope: MemoryScope) {
-    return await repository.get(scope) ?? createCompanionState(scope, now())
-  }
+  async function loadState(scope: MemoryScope) {
+    const key = scopeKey(scope)
+    const persisted = await repository.get(scope)
+    if (persisted) {
+      unpersistedStates.delete(key)
+      return persisted
+    }
 
-  async function loadProfile(scope: MemoryScope) {
-    const existing = await profileRepository.get(scope)
+    const existing = unpersistedStates.get(key)
     if (existing)
       return existing
 
-    // The relationship birthday comes from the state creation boundary. Persisting
-    // both records here prevents a later restart from silently assigning a new one.
-    let state = await repository.get(scope)
-    if (!state) {
-      state = createCompanionState(scope, now())
-      await repository.save(state)
-    }
+    const state = createCompanionState(scope, now())
+    unpersistedStates.set(key, state)
+    return state
+  }
 
-    const profile = createCompanionIdentityProfile(scope, state.createdAt, now())
-    await profileRepository.save(profile)
-    return profile
+  async function load(scope: MemoryScope) {
+    const key = scopeKey(scope)
+    const pendingCompanion = pendingCompanionLoads.get(key)
+    if (pendingCompanion)
+      return (await pendingCompanion).state
+
+    const existingLoad = pendingStateLoads.get(key)
+    if (existingLoad)
+      return await existingLoad
+
+    const stateLoad = loadState(scope)
+    pendingStateLoads.set(key, stateLoad)
+    try {
+      return await stateLoad
+    }
+    finally {
+      if (pendingStateLoads.get(key) === stateLoad)
+        pendingStateLoads.delete(key)
+    }
+  }
+
+  async function loadCompanion(scope: MemoryScope) {
+    const key = scopeKey(scope)
+    const existingLoad = pendingCompanionLoads.get(key)
+    if (existingLoad)
+      return await existingLoad
+
+    const precedingUpdate = pendingUpdates.get(key)
+    const load = (async (): Promise<CompanionSnapshot> => {
+      // A durable transition that started first owns the current state snapshot.
+      // Waiting here prevents cold initialization from overwriting its result.
+      await precedingUpdate?.catch(() => undefined)
+
+      const pendingState = pendingStateLoads.get(key)
+      const profileLoad = profileRepository.get(scope)
+      const loadedState = pendingState
+        ? await pendingState
+        : undefined
+      // A pending standalone load may have produced an intentionally unpersisted
+      // state. Recheck storage before deciding whether this combined load owns it.
+      const persistedState = await repository.get(scope)
+      const candidateState = persistedState
+        ?? loadedState
+        ?? unpersistedStates.get(key)
+      const persistedProfile = await profileLoad
+
+      // A profile may survive an interrupted or manually repaired state store.
+      // Its birthday remains the relationship authority when recreating state.
+      const relationshipStartedAt = persistedState?.createdAt
+        ?? (persistedProfile ? new Date(persistedProfile.birthday).getTime() : undefined)
+        ?? candidateState?.createdAt
+        ?? now()
+      const state = persistedState
+        ?? (persistedProfile ? createCompanionState(scope, relationshipStartedAt) : candidateState)
+        ?? createCompanionState(scope, relationshipStartedAt)
+      const profile = persistedProfile
+        ?? createCompanionIdentityProfile(scope, state.createdAt, now())
+
+      if (!persistedState)
+        await repository.save(state)
+      if (!persistedProfile)
+        await profileRepository.save(profile)
+
+      unpersistedStates.delete(key)
+
+      return { state, profile }
+    })()
+    pendingCompanionLoads.set(key, load)
+
+    try {
+      return await load
+    }
+    finally {
+      if (pendingCompanionLoads.get(key) === load)
+        pendingCompanionLoads.delete(key)
+    }
+  }
+
+  async function loadProfile(scope: MemoryScope) {
+    return (await loadCompanion(scope)).profile
   }
 
   async function updateProfile(
@@ -117,7 +205,7 @@ export function createLocalCompanionService(
     const pendingUpdate = (previous ?? Promise.resolve())
       .catch(() => undefined)
       .then(async () => {
-        const profile = await loadProfile(scope)
+        const { profile } = await loadCompanion(scope)
         const next = updateCompanionIdentityProfile(profile, update, now())
         await profileRepository.save(next)
         return next
@@ -140,10 +228,14 @@ export function createLocalCompanionService(
   ) {
     const key = scopeKey(scope)
     const previous = pendingUpdates.get(key)
+    const precedingCompanionLoad = pendingCompanionLoads.get(key)
     const pendingUpdate = (previous ?? Promise.resolve())
       .catch(() => undefined)
       .then(async () => {
-        const state = await load(scope)
+        if (precedingCompanionLoad)
+          await precedingCompanionLoad
+
+        const state = await loadState(scope)
         const next = transition(state, now())
         if (next.growthStage !== state.growthStage) {
           await onGrowthStageTransition?.({
@@ -154,6 +246,7 @@ export function createLocalCompanionService(
           })
         }
         await repository.save(next)
+        unpersistedStates.delete(key)
         return next
       })
 
@@ -178,6 +271,7 @@ export function createLocalCompanionService(
 
   return {
     load,
+    loadCompanion,
     loadProfile,
     updateProfile,
     recordCompletedInteraction,
@@ -212,6 +306,7 @@ export function createLocalCompanionService(
         repository.clear(scope),
         profileRepository.clear(scope),
       ])
+      unpersistedStates.delete(scopeKey(scope))
     },
 
     async clearOwner(ownerId) {
@@ -219,6 +314,10 @@ export function createLocalCompanionService(
         repository.clearOwner(ownerId),
         profileRepository.clearOwner(ownerId),
       ])
+      for (const [key, state] of unpersistedStates) {
+        if (state.scope.ownerId === ownerId)
+          unpersistedStates.delete(key)
+      }
     },
   }
 }

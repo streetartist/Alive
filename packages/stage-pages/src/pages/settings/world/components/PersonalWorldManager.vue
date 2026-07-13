@@ -59,7 +59,7 @@ const scope = computed<MemoryScope>(() => ({
   characterId: activeCardId.value,
 }))
 const characterName = computed(() => airiCardStore.cards.get(activeCardId.value)?.name ?? activeCardId.value)
-const currentRoomId = computed(() => airiCardStore.activeCard?.extensions?.airi?.modules?.activeBackgroundId)
+const currentRoomId = computed(() => backgroundStore.activeBackgroundId)
 const entries = computed(() => personalWorldStore.getEntries(scope.value))
 const journal = computed(() => byKind(entries.value, 'journal'))
 const learned = computed(() => byKind(entries.value, 'learned'))
@@ -86,6 +86,7 @@ async function loadWorld() {
       memoryStore.listMemories(requestedScope),
       companionStore.loadProfile(requestedScope),
       backgroundStore.initializeStore(),
+      personalWorldStore.loadActiveRoomId(requestedScope),
     ])
     if (requestId !== latestLoadRequest)
       return
@@ -184,16 +185,27 @@ async function confirmIdentity(entry: PersonalWorldEntry, kind: CompanionIdentit
   }
 }
 
-function selectRoom(id?: string) {
-  airiCardStore.updateActiveCardBackground(id)
+async function selectRoom(id?: string) {
+  updatingRoomId.value = id ?? 'none'
+  errorMessage.value = ''
+  try {
+    await backgroundStore.setActiveBackground(id, { ...scope.value })
+  }
+  catch (error) {
+    errorMessage.value = errorMessageFrom(error) ?? t('settings.pages.world.errors.uploadRoom')
+  }
+  finally {
+    updatingRoomId.value = undefined
+  }
 }
 
 async function uploadRoom(file: File) {
   updatingRoomId.value = 'upload'
   errorMessage.value = ''
   try {
-    const id = await backgroundStore.addBackground('scene', file, file.name)
-    airiCardStore.updateActiveCardBackground(id)
+    const requestedScope = { ...scope.value }
+    const id = await backgroundStore.addBackground('scene', file, file.name, undefined, requestedScope)
+    await backgroundStore.setActiveBackground(id, requestedScope)
   }
   catch (error) {
     errorMessage.value = errorMessageFrom(error) ?? t('settings.pages.world.errors.uploadRoom')

@@ -92,6 +92,7 @@ function createHarness(options: HarnessOptions = {}) {
   })
   const ids = ['stream-context', 'assistant-id', 'user-id', 'fallback-id']
   let systemPromptSupplement: string | undefined
+  const systemPromptSessions: string[] = []
   let nowValue = new Date(2026, 3, 25, 18, 47).getTime()
   let monotonicNowValues = [1000]
   const generations: Record<string, number> = {
@@ -130,7 +131,10 @@ function createHarness(options: HarnessOptions = {}) {
     },
     getActiveSessionId: () => options.activeSessionId ?? 'session-1',
     getActiveProvider: () => 'mock-provider',
-    getSystemPromptSupplement: () => systemPromptSupplement,
+    getSystemPromptSupplement: (sessionId) => {
+      systemPromptSessions.push(sessionId)
+      return systemPromptSupplement
+    },
     memory: options.memory,
     getMemoryScope: options.memoryScope,
     getMemoryOptions: () => options.memoryOptions,
@@ -190,6 +194,7 @@ function createHarness(options: HarnessOptions = {}) {
         systemPromptSupplement = next
       },
     },
+    systemPromptSessions,
     telemetry,
     userAppended,
     userTurns,
@@ -494,6 +499,44 @@ describe('createChatOrchestratorRuntime', () => {
     expect(order).toEqual(['remember', 'durable-turn', 'assistant-turn'])
   })
 
+  it('waits for durable-turn follow-up work before completing ingest', async () => {
+    const rememberedRecord = createMemoryMatch().record
+    const recall = vi.fn<ChatOrchestratorMemoryPort['recall']>().mockResolvedValue([])
+    const rememberTurn = vi.fn<ChatOrchestratorMemoryPort['rememberTurn']>().mockResolvedValue(rememberedRecord)
+    const harness = createHarness({
+      memory: {
+        id: 'test-memory',
+        recall,
+        rememberTurn,
+      },
+      memoryScope: () => memoryScope,
+    })
+    let releaseDurableTurn!: () => void
+    harness.durableTurnRemembered.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        releaseDurableTurn = resolve
+      })
+    })
+
+    let ingestCompleted = false
+    const ingest = harness.runtime.ingest('wait for durable follow-up', {
+      model: 'gpt-test',
+      chatProvider: provider,
+    }).then(() => {
+      ingestCompleted = true
+    })
+
+    await vi.waitFor(() => {
+      expect(harness.durableTurnRemembered).toHaveBeenCalledTimes(1)
+    })
+    expect(ingestCompleted).toBe(false)
+
+    releaseDurableTurn()
+    await ingest
+
+    expect(ingestCompleted).toBe(true)
+  })
+
   it('does not emit a durable-turn event when memory declines the completed turn', async () => {
     const recall = vi.fn<ChatOrchestratorMemoryPort['recall']>().mockResolvedValue([])
     const rememberTurn = vi.fn<ChatOrchestratorMemoryPort['rememberTurn']>().mockResolvedValue(undefined)
@@ -641,7 +684,7 @@ describe('createChatOrchestratorRuntime', () => {
 
   /**
    * @example
-   * deps.getSystemPromptSupplement() returns tool guidance.
+   * deps.getSystemPromptSupplement(sessionId) returns tool guidance.
    * The runtime appends it to the existing provider system message.
    */
   it('appends system prompt supplement to the provider system message', async () => {
@@ -663,6 +706,24 @@ describe('createChatOrchestratorRuntime', () => {
       role: 'system',
       content: 'system prompt\n\nPlugin toolset guidance.',
     })
+    expect(harness.systemPromptSessions).toEqual(['session-1'])
+  })
+
+  it('resolves system prompt supplement for the queued target session', async () => {
+    const harness = createHarness({ activeSessionId: 'session-1' })
+    harness.sessionMessages['session-2'] = [{
+      role: 'system',
+      content: 'target system prompt',
+      createdAt: 1,
+      id: 'target-system',
+    }]
+
+    await harness.runtime.ingest('target message', {
+      model: 'gpt-test',
+      chatProvider: provider,
+    }, 'session-2')
+
+    expect(harness.systemPromptSessions).toEqual(['session-2'])
   })
 
   /**

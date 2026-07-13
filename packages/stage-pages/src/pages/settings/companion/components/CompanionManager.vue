@@ -16,6 +16,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import CompanionDataPortability from './CompanionDataPortability.vue'
+import CompanionGrowthTimeline from './CompanionGrowthTimeline.vue'
 import CompanionIdentitySettings from './CompanionIdentitySettings.vue'
 import CompanionLifeSettings from './CompanionLifeSettings.vue'
 import CompanionOverview from './CompanionOverview.vue'
@@ -66,16 +67,15 @@ async function loadCompanion() {
   errorMessage.value = ''
 
   try {
-    const [nextState, nextProfile, nextMemories] = await Promise.all([
-      companionStore.loadState(requestedScope),
-      companionStore.loadProfile(requestedScope),
+    const [companion, nextMemories] = await Promise.all([
+      companionStore.loadCompanion(requestedScope),
       memoryStore.listMemories(requestedScope),
     ])
     if (requestId !== latestLoadRequest)
       return
 
-    state.value = nextState
-    identityProfile.value = nextProfile
+    state.value = companion.state
+    identityProfile.value = companion.profile
     memories.value = nextMemories
   }
   catch (error) {
@@ -195,6 +195,7 @@ watch([userId, activeCardId], () => {
       <CompanionIdentitySettings :profile="identityProfile" :saving="savingIdentity" @save="saveIdentity" />
       <CompanionPersonality :personality="state.personality" />
       <CompanionLifeSettings />
+      <CompanionGrowthTimeline :events="state.recentGrowthEvents" />
       <CompanionReflections :reflections="state.reflections" />
       <CompanionDataPortability
         :scope="scope"

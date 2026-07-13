@@ -5,6 +5,7 @@ import type { JsonSchema } from 'xsschema'
 import { defineInvoke } from '@moeru/eventa'
 import { createContext } from '@moeru/eventa/adapters/electron/renderer'
 import { artistryGenerateHeadless, errorMessageFromValue } from '@proj-airi/stage-shared'
+import { useAuthStore } from '@proj-airi/stage-ui/stores/auth'
 import { useBackgroundStore } from '@proj-airi/stage-ui/stores/background'
 import { useAiriCardStore } from '@proj-airi/stage-ui/stores/modules/airi-card'
 import { resolveArtistryConfigFromStore, useArtistryStore } from '@proj-airi/stage-ui/stores/modules/artistry'
@@ -74,7 +75,12 @@ async function executeCreateImageJournalEntry(params: { prompt?: string, title?:
     throw new Error('prompt is required for image_journal.create')
 
   const backgroundStore = useBackgroundStore()
+  const authStore = useAuthStore()
   const cardStore = useAiriCardStore()
+  const scope = {
+    ownerId: authStore.userId,
+    characterId: cardStore.activeCardId,
+  }
   const activeCard = cardStore.activeCard
   const globalArtistryConfig = getArtistryConfig()
 
@@ -119,23 +125,11 @@ async function executeCreateImageJournalEntry(params: { prompt?: string, title?:
       blob = await response.blob()
     }
 
-    const entryId = await backgroundStore.addBackground('journal', blob, title, params.prompt, cardStore.activeCardId)
+    const entryId = await backgroundStore.addBackground('journal', blob, title, params.prompt, scope)
 
     // Handle Application Logic based on Mode
     if (mode === 'bg' || mode === 'bg_widget') {
-      const cardId = cardStore.activeCardId
-      if (cardId) {
-        const card = cardStore.cards.get(cardId)
-        if (card) {
-          const extension = JSON.parse(JSON.stringify(card.extensions || {}))
-          if (!extension.airi)
-            extension.airi = {}
-          if (!extension.airi.modules)
-            extension.airi.modules = {}
-          extension.airi.modules.activeBackgroundId = entryId
-          cardStore.updateCard(cardId, { ...card, extensions: extension })
-        }
-      }
+      await backgroundStore.setActiveBackground(entryId, scope)
     }
 
     if (mode === 'widget' || mode === 'bg_widget') {
@@ -180,8 +174,10 @@ async function executeSetAsBackground(params: { query?: string }) {
     return 'Error: query is required for image_journal.apply. Provide a title or ID to search for.'
 
   const backgroundStore = useBackgroundStore()
+  const authStore = useAuthStore()
   const cardStore = useAiriCardStore()
   const cardId = cardStore.activeCardId
+  const scope = { ownerId: authStore.userId, characterId: cardId }
   const query = params.query.toLowerCase().trim()
 
   const entries = backgroundStore.getCharacterJournalEntries(cardId)
@@ -194,18 +190,7 @@ async function executeSetAsBackground(params: { query?: string }) {
 
   if (entry) {
     try {
-      if (cardId) {
-        const card = cardStore.cards.get(cardId)
-        if (card) {
-          const extension = JSON.parse(JSON.stringify(card.extensions || {}))
-          if (!extension.airi)
-            extension.airi = {}
-          if (!extension.airi.modules)
-            extension.airi.modules = {}
-          extension.airi.modules.activeBackgroundId = entry.id
-          cardStore.updateCard(cardId, { ...card, extensions: extension })
-        }
-      }
+      await backgroundStore.setActiveBackground(entry.id, scope)
       return `Background set to "${entry.title}".`
     }
     catch (e) {

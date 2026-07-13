@@ -220,8 +220,11 @@ export interface ChatOrchestratorRuntimeDeps {
   getActiveSessionId: () => string
   /** Returns the currently active provider ID for categorization policy. */
   getActiveProvider: () => string | undefined
-  /** Returns optional prompt text appended to the provider system message for this send. */
-  getSystemPromptSupplement?: () => string | undefined
+  /**
+   * Resolves optional prompt text for the exact session being sent.
+   * Async adapters may load durable context before provider composition begins.
+   */
+  getSystemPromptSupplement?: (sessionId: string) => string | undefined | Promise<string | undefined>
   /** Runtime context providers ingested immediately before prompt composition. */
   runtimeContextProviders?: Array<() => ContextMessage | null | undefined>
   /** Optional durable memory boundary used for scoped recall and completed-turn ingestion. */
@@ -332,7 +335,7 @@ export interface ChatOrchestratorRuntimeDeps {
     assistant: MemoryCompletedTurn['assistant']
     memoryRecord: MemoryRecord
     messageText: string
-  }) => void
+  }) => void | Promise<void>
 }
 
 /**
@@ -711,7 +714,7 @@ export function createChatOrchestratorRuntime(deps: ChatOrchestratorRuntimeDeps)
       })
 
       const newMessages = buildProviderMessages(sessionMessagesForSend)
-      const systemPromptSupplement = deps.getSystemPromptSupplement?.()?.trim()
+      const systemPromptSupplement = (await deps.getSystemPromptSupplement?.(sessionId))?.trim()
       if (systemPromptSupplement) {
         const systemMessage = newMessages.find(message => message.role === 'system')
         if (systemMessage) {
@@ -892,7 +895,7 @@ export function createChatOrchestratorRuntime(deps: ChatOrchestratorRuntimeDeps)
           const memoryRecord = await deps.memory.rememberTurn(completedTurn)
 
           if (memoryRecord && completedTurn.assistant.text.trim()) {
-            deps.onDurableTurnRemembered?.({
+            await deps.onDurableTurnRemembered?.({
               sessionId,
               scope: memoryScope,
               user: completedTurn.user,

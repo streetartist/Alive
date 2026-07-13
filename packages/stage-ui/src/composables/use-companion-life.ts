@@ -50,10 +50,10 @@ export function useCompanionLife(options: UseCompanionLifeOptions) {
         ownerId: userId.value,
         characterId,
       }
-      const [state, profile] = await Promise.all([
-        companionStore.loadState(scope),
-        companionStore.loadProfile(scope),
-      ])
+      const { state, profile } = await companionStore.loadCompanion(scope)
+      if (userId.value !== scope.ownerId || activeCardId.value !== scope.characterId)
+        return
+
       const idleAfterMs = Math.max(1, idleMinutes.value) * 60_000
       const decision = resolveCompanionLifeBehavior({
         now: Date.now(),
@@ -63,7 +63,7 @@ export function useCompanionLife(options: UseCompanionLifeOptions) {
         busy: toValue(options.busy),
         visible: visibility.value === 'visible',
         personality: state.personality,
-        previous: lifeStore.behaviorStateFor(characterId),
+        previous: lifeStore.behaviorStateFor(scope),
         policy: {
           idleAfterMs,
           restAfterMs: Math.max(120 * 60_000, idleAfterMs * 2),
@@ -78,7 +78,7 @@ export function useCompanionLife(options: UseCompanionLifeOptions) {
       }, decision.occurredAt)
       const mood = resolveCompanionMood(state.mood, decision.occurredAt)
 
-      lifeStore.recordBehavior(characterId, decision.nextState)
+      lifeStore.recordBehavior(scope, decision.nextState)
       await options.onBehavior(decision, messageCue, mood)
     }
     catch (error) {
